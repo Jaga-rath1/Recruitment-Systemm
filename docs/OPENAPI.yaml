@@ -1,0 +1,186 @@
+openapi: 3.1.0
+info:
+  title: NEXNUV Recruitment Microservice API
+  version: 1.0.0
+  description: >
+    Enterprise multi-tenant SaaS Recruitment microservice REST API.
+    Stateless, RBAC-protected, PostgreSQL-backed, zero message brokers.
+servers:
+  - url: http://localhost:4005/api/v1
+    description: Local Standalone Recruitment Service
+paths:
+  /subscriptions:
+    post:
+      summary: Create Recruitment Premium subscription request
+      tags: [Subscription]
+  /subscriptions/{id}:
+    get:
+      summary: Get subscription status and payment instructions
+      tags: [Subscription]
+  /subscriptions/{id}/payments:
+    post:
+      summary: Submit payment reference and payment proof
+      tags: [Subscription]
+  /subscriptions/platform-admin/queue:
+    get:
+      summary: Platform Admin verification queue
+      tags: [PlatformAdmin]
+  /subscriptions/platform-admin/{id}/verify:
+    post:
+      summary: Approve or reject subscription payment
+      tags: [PlatformAdmin]
+  /subscriptions/activate:
+    post:
+      summary: Activate Organisation Admin account using secure token and set password
+      tags: [Subscription]
+  /organisations/profile:
+    get:
+      summary: Get tenant organisation profile
+      tags: [Organisation]
+  /organisations/dashboard:
+    get:
+      summary: Get tenant recruitment dashboard KPIs
+      tags: [Organisation]
+  /organisations/employees:
+    get:
+      summary: List organisation employees with recruitment role assignments
+      tags: [Employee]
+    post:
+      summary: Add and invite employee with recruitment role
+      tags: [Employee]
+  /organisations/employees/{employeeId}/role:
+    patch:
+      summary: Update employee recruitment role
+      tags: [Employee]
+  /organisations/employees/{employeeId}/permissions:
+    patch:
+      summary: Update per-employee granular permissions
+      tags: [Employee]
+  /organisations/employees/{employeeId}/deactivate:
+    patch:
+      summary: Deactivate employee recruitment access
+      tags: [Employee]
+  /roles:
+    get:
+      summary: List organisation recruitment roles
+      tags: [Role]
+    post:
+      summary: Create custom recruitment role
+      tags: [Role]
+  /roles/{roleId}/permissions:
+    put:
+      summary: Replace permissions on a recruitment role
+      tags: [Role]
+  /jobs/public/careers:
+    get:
+      summary: List published jobs on public Careers page
+      tags: [CareersPublic]
+  /jobs/public/careers/{identifier}:
+    get:
+      summary: Get published job details by slug or UUID
+      tags: [CareersPublic]
+  /jobs/hrms/sync:
+    post:
+      summary: Sync jobs from HRMS Job API adapter
+      tags: [Jobs]
+  /jobs:
+    get:
+      summary: List internal organisation jobs
+      tags: [Jobs]
+    post:
+      summary: Create manual job requisition
+      tags: [Jobs]
+  /jobs/{id}/publish:
+    post:
+      summary: Publish job to public Careers page
+      tags: [Jobs]
+  /jobs/{id}/unpublish:
+    post:
+      summary: Unpublish job from public Careers page
+      tags: [Jobs]
+  /jobs/{id}/close:
+    post:
+      summary: Close job requisition
+      tags: [Jobs]
+  /applications/public/jobs/{jobId}/apply:
+    post:
+      summary: Submit public candidate application with resume upload
+      tags: [Applications]
+  /applications:
+    get:
+      summary: List tenant candidate applications
+      tags: [Applications]
+  /applications/{id}/screen:
+    post:
+      summary: Shortlist, reject, or hold application
+      tags: [Applications]
+  /applications/{id}/final-decision:
+    post:
+      summary: Record final selection decision after interviews
+      tags: [Applications]
+  /interviews:
+    get:
+      summary: List all organisation interviews
+      tags: [Interviews]
+    post:
+      summary: Schedule technical or managerial interview
+      tags: [Interviews]
+  /interviews/assigned/technical:
+    get:
+      summary: Technical Interviewer assigned interviews only
+      tags: [Interviews]
+  /interviews/assigned/managerial:
+    get:
+      summary: Senior Interviewer assigned interviews only
+      tags: [Interviews]
+  /interviews/{id}/reschedule:
+    patch:
+      summary: Reschedule interview
+      tags: [Interviews]
+  /interviews/{id}/feedback:
+    post:
+      summary: Submit confidential structured interview evaluation
+      tags: [Interviews]
+  /offers:
+    get:
+      summary: List organisation offers
+      tags: [Offers]
+    post:
+      summary: Create and optionally send job offer
+      tags: [Offers]
+  /offers/{id}/send:
+    post:
+      summary: Dispatch offer letter to candidate
+      tags: [Offers]
+  /joining:
+    get:
+      summary: List joining records
+      tags: [Joining]
+    post:
+      summary: Initiate candidate joining after offer acceptance
+      tags: [Joining]
+  /joining/{id}/letter:
+    post:
+      summary: Upload and send joining letter
+      tags: [Joining]
+  /joining/{id}/status:
+    patch:
+      summary: Update joining status and mark HIRED on JOINED
+      tags: [Joining]
+  /portal/overview:
+    get:
+      summary: Candidate Portal profile, applications, tracker, schedules, offers, and joining
+      tags: [CandidatePortal]
+  /portal/profile:
+    patch:
+      summary: Update candidate self-service profile
+      tags: [CandidatePortal]
+  /portal/offers/{offerId}/respond:
+    post:
+      summary: Candidate accept or reject offer
+      tags: [CandidatePortal]
+  /reports/summary:
+    get:
+      summary: Recruitment pipeline and conversion analytics
+      tags: [Reports]
+

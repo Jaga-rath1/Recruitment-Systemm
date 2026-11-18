@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>Ticket Created | NexnuvTKT</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px 12px;
+      background: #f0f6ff;
+      color: #142650;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    table {
+      border-collapse: collapse;
+      border-spacing: 0;
+    }
+
+    .email-shell {
+      width: 100%;
+      max-width: 820px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 6px 18px rgba(20, 38, 80, 0.06);
+      border: 1px solid #d9e6ff;
+    }
+
+    .header {
+      background: #2154cb;
+      background-image: linear-gradient(115deg, #1757c8, #303fbb);
+      color: #ffffff;
+      padding: 26px 36px;
+    }
+
+    .brand {
+      color: #ffffff;
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    .brand-subtitle {
+      color: #e3edff;
+      font-size: 14px;
+      margin: 2px 0 0;
+      font-weight: 500;
+    }
+
+    .tagline {
+      color: #ffffff;
+      font-size: 13px;
+      text-align: right;
+      font-weight: 500;
+    }
+
+    .content {
+      padding: 32px 36px 20px;
+      background: #ffffff;
+    }
+
+    .heading {
+      color: #142650;
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1.25;
+      margin: 0 0 6px;
+      letter-spacing: -0.3px;
+    }
+
+    .greeting {
+      color: #526991;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 20px;
+    }
+
+    .intro {
+      color: #526991;
+      font-size: 15px;
+      line-height: 1.6;
+      margin: 0 0 24px;
+    }
+
+    .details-card {
+      border: 1px solid #d9e6ff;
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 22px 24px;
+      margin-bottom: 24px;
+    }
+
+    .section-heading {
+      font-size: 18px;
+      font-weight: 700;
+      color: #142650;
+      margin: 0;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: #ecfdf5;
+      color: #059669;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      border: 1px solid #a7f3d0;
+    }
+
+    .field {
+      padding: 12px 10px;
+      vertical-align: top;
+      width: 50%;
+    }
+
+    .field-label {
+      color: #6279a0;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.4;
+      margin: 0 0 4px;
+    }
+
+    .field-value {
+      color: #142650;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.4;
+      margin: 0;
+      word-break: break-word;
+    }
+
+    .description {
+      color: #33486a;
+      font-size: 13px;
+      font-weight: 400;
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pill-type {
+      background: #f0e5ff;
+      color: #7c2de2;
+      border: 1px solid #e2ceff;
+    }
+
+    .pill-priority {
+      background: #ffe7eb;
+      color: #dc253d;
+      border: 1px solid #ffccd3;
+    }
+
+    .sla-box {
+      background: #f0f6ff;
+      border: 1px solid #d9e6ff;
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin: 0 0 28px;
+    }
+
+    .sla-title {
+      color: #142650;
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0 0 6px;
+    }
+
+    .sla-text {
+      color: #526991;
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .button-cell {
+      padding: 6px 0 28px;
+      text-align: center;
+    }
+
+    .button {
+      display: inline-block;
+      background: #1760ed;
+      color: #ffffff !important;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 40px;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(23, 96, 237, 0.35);
+    }
+
+    .help-text {
+      border-top: 1px solid #e5efff;
+      padding: 20px 8px 12px;
+      text-align: center;
+      color: #7085a8;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .footer {
+      background: #0f1d38;
+      color: #ffffff;
+      padding: 24px 36px;
+    }
+
+    .footer-brand {
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .footer-subtitle {
+      color: #75aaff;
+      font-size: 12px;
+      margin: 2px 0 0;
+    }
+
+    .copyright {
+      color: #8c9ebc;
+      font-size: 12px;
+      text-align: right;
+      line-height: 1.5;
+    }
+
+    @media only screen and (max-width: 620px) {
+      body {
+        padding: 8px 4px;
+      }
+      .header {
+        padding: 20px 18px;
+      }
+      .content {
+        padding: 22px 16px 14px;
+      }
+      .heading {
+        font-size: 22px;
+      }
+      .field,
+      .mobile-stack {
+        display: block !important;
+        width: 100% !important;
+        box-sizing: border-box;
+      }
+      .field {
+        padding: 10px 0;
+      }
+      .tagline,
+      .copyright {
+        text-align: left;
+        padding-top: 10px;
+      }
+      .footer {
+        padding: 20px 18px;
+      }
+      .button {
+        display: block;
+        padding: 14px 20px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td align="center">
+        <table role="presentation" class="email-shell" width="100%" cellpadding="0" cellspacing="0" border="0">
+
+          <!-- Header -->
+          <tr>
+            <td class="header">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="mobile-stack" valign="middle">
+                    <p class="brand">NexnuvTKT</p>
+                    <p class="tagline" style="margin:4px 0 0;font-size:13px;font-weight:500;color:#e3edff;text-align:left;">Better Support, Faster Solution</p>
+                  </td>
+                  <td class="mobile-stack" valign="middle"></td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Main Content -->
+          <tr>
+            <td class="content">
+
+              <!-- Heading & Greeting -->
+              <h1 class="heading">Your Support Ticket Has Been Created</h1>
+              <p class="greeting">Hello {{customerName}},</p>
+
+              <p class="intro">
+                Thank you for reaching out to NexnuvTKT Help Desk. Your support request has been logged and assigned a tracking ID. Our team is actively reviewing your request.
+              </p>
+
+              <!-- Ticket details -->
+              <table role="presentation" class="details-card" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td colspan="2" style="padding-bottom:14px;border-bottom:1px solid #edf3ff;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle">
+                          <h2 class="section-heading">Ticket Details</h2>
+                        </td>
+                        <td align="right" valign="middle">
+                          <span class="status-badge">Status: {{status}}</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="field">
+                    <p class="field-label">Ticket ID</p>
+                    <p class="field-value">{{ticketId}}</p>
+                  </td>
+                  <td class="field">
+                    <p class="field-label">Subject</p>
+                    <p class="field-value">{{subject}}</p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="field">
+                    <p class="field-label">Incident Type</p>
+                    <p style="margin:0;"><span class="pill pill-type">{{incidentType}}</span></p>
+                  </td>
+                  <td class="field">
+                    <p class="field-label">Description</p>
+                    <p class="field-value description">{{description}}</p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="field">
+                    <p class="field-label">Priority</p>
+                    <p style="margin:0;"><span class="pill pill-priority">{{priority}}</span></p>
+                  </td>
+                  <td class="field">
+                    <p class="field-label">Current Status</p>
+                    <p class="field-value">{{status}}</p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="field">
+                    <p class="field-label">Created By</p>
+                    <p class="field-value">{{creatorName}}</p>
+                    <p class="field-label" style="margin-top:2px;">{{creatorEmail}}</p>
+                  </td>
+                  <td class="field">
+                    <p class="field-label">Created At</p>
+                    <p class="field-value">{{createdAt}}</p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="field" colspan="2" style="border-top:1px dashed #edf3ff;padding-top:14px;">
+                    <p class="field-label">Assigned Representative</p>
+                    <p class="field-value">{{assignedAgentName}}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- SLA Box -->
+              <table role="presentation" class="sla-box" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td>
+                    <p class="sla-title">SLA Resolution Commitment</p>
+                    <p class="sla-text">
+                      This ticket falls under <strong>{{slaPolicyName}}</strong> priority. Our target initial response time is <strong>{{responseTime}}</strong> as per our SLA policy.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="button-cell">
+                    <a class="button" href="{{ticketUrl}}">
+                      View Ticket in Portal
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <div class="help-text">
+                Need help? Reply directly to this notification or contact the Help Desk team.
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td class="footer">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td class="mobile-stack" valign="middle">
+                    <p class="footer-brand">NexnuvTKT</p>
+                    <p class="footer-subtitle">Help Desk</p>
+                  </td>
+                  <td class="copyright mobile-stack" valign="middle">
+                    &copy; {{currentYear}} NexnuvTKT. All rights reserved.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

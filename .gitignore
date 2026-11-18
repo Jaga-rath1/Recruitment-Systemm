@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment & Secrets (never commit real .env files anywhere in workspace)
+.env
+**/.env
+**/.env.*
+!recruitment-service/.env.example
+!client/.env.example
+!api-gateway/.env.example
+!notification-service/.env.example
+!platform-service/.env.example
+
+# Build & Coverage
+dist/
+**/dist/
+coverage/
+**/coverage/
+
+# Local Secure Object Storage & Logs
+storage/
+**/storage/
+recruitment-service/storage-test/
+recruitment-service/.pglite-data/
+logs/
+**/logs/
+*.log
+npm-debug.log*
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

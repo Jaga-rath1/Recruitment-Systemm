@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexnuv-recruitment-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexnuv_recruitment}
+      POSTGRES_USER: ${POSTGRES_USER:-nexnuv_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexnuv_pass}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - recruitment_pg_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexnuv_user} -d ${POSTGRES_DB:-nexnuv_recruitment}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  recruitment-service:
+    build:
+      context: ../recruitment-service
+      dockerfile: ../infrastructure/recruitment-service.Dockerfile
+    container_name: nexnuv-recruitment-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4007
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nexnuv_user}:${POSTGRES_PASSWORD:-nexnuv_pass}@postgres:5432/${POSTGRES_DB:-nexnuv_recruitment}?schema=public
+      INTEGRATION_MODE: ${INTEGRATION_MODE:-live}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in production}
+      API_GATEWAY_URL: ${API_GATEWAY_URL:-http://host.docker.internal:4000}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://host.docker.internal:4001}
+      PLATFORM_SERVICE_URL: ${PLATFORM_SERVICE_URL:-http://host.docker.internal:4002}
+      ORGANISATION_SERVICE_URL: ${ORGANISATION_SERVICE_URL:-http://host.docker.internal:4003}
+      EMPLOYEE_SERVICE_URL: ${EMPLOYEE_SERVICE_URL:-http://host.docker.internal:4004}
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:4006}
+      JWT_ISSUER: ${JWT_ISSUER:-nexnuv-auth-service}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-nexnuv-recruitment}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in production}
+      CANDIDATE_JWT_SECRET: ${CANDIDATE_JWT_SECRET:?Set CANDIDATE_JWT_SECRET in production}
+      CANDIDATE_TOKEN_HASH_SECRET: ${CANDIDATE_TOKEN_HASH_SECRET:?Set CANDIDATE_TOKEN_HASH_SECRET in production}
+      STORAGE_SIGNED_URL_SECRET: ${STORAGE_SIGNED_URL_SECRET:?Set STORAGE_SIGNED_URL_SECRET in production}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-DISABLED}
+      ALLOW_UNCONFIGURED_EMAIL_IN_PRODUCTION: ${ALLOW_UNCONFIGURED_EMAIL_IN_PRODUCTION:-false}
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@nexnuv.com}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-NEXNUV Recruitment}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      STORAGE_SIGNED_URL_TTL_SECONDS: ${STORAGE_SIGNED_URL_TTL_SECONDS:-900}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-LOCAL_SECURE}
+      ALLOW_LOCAL_STORAGE_IN_PRODUCTION: ${ALLOW_LOCAL_STORAGE_IN_PRODUCTION:-true}
+      STORAGE_LOCAL_ROOT: /app/storage
+      STORAGE_QUARANTINE_ROOT: /app/storage/_quarantine
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_FOLDER_PREFIX: ${CLOUDINARY_FOLDER_PREFIX:-nexnuv-recruitment}
+      CLOUDINARY_TIMEOUT_MS: ${CLOUDINARY_TIMEOUT_MS:-15000}
+      CLOUDINARY_DOWNLOAD_TTL_SECONDS: ${CLOUDINARY_DOWNLOAD_TTL_SECONDS:-120}
+      MALWARE_SCANNER_MODE: ${MALWARE_SCANNER_MODE:-DISABLED}
+      MALWARE_SCAN_REQUIRED: ${MALWARE_SCAN_REQUIRED:-false}
+      CLAMAV_HOST: ${CLAMAV_HOST:-127.0.0.1}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      CLIENT_APP_URL: ${CLIENT_APP_URL:-http://localhost:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://localhost:4000}
+    ports:
+      - "4007:4007"
+    volumes:
+      - recruitment_storage:/app/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4007/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  client:
+    build:
+      context: ..
+      dockerfile: infrastructure/client.Dockerfile
+    container_name: nexnuv-recruitment-client
+    restart: unless-stopped
+    depends_on:
+      recruitment-service:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+
+volumes:
+  recruitment_pg_data:
+  recruitment_storage:
