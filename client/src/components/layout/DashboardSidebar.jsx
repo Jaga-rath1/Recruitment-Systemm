@@ -69,7 +69,6 @@ export default function DashboardSidebar({
     { to: '/platform-admin/plans', label: 'Platform Plans', icon: Layers },
     { to: '/platform-admin/subscriptions', label: 'Subscriptions', icon: CreditCard },
     { to: '/platform-admin/organisations', label: 'Organisation Overview', icon: Building2 },
-    { to: '/platform-admin/jobs', label: 'Job Governance', icon: Briefcase },
     { to: '/platform-admin/entitlements', label: 'Usage & Resource Limits', icon: KeyRound },
     { to: '/platform-admin/configuration', label: 'Catalog & Settings', icon: Sliders },
     { to: '/platform-admin/administration', label: 'Platform Administration', icon: ShieldCheck },

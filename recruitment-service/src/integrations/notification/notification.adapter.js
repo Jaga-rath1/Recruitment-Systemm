@@ -76,12 +76,13 @@ function buildNotificationCopy(eventType, recipientName, payload = {}) {
     }
     case 'PASSWORD_RESET_REQUESTED': {
       const org = payload.organisationName ? ` — ${payload.organisationName}` : '';
+      const roleLabel = payload.roleLabel || 'Organisation Admin';
       const link = payload.resetLink ? `\n\nReset Password Link: ${payload.resetLink}` : '';
       const exp = payload.expiresInMinutes ? ` (expires in ${payload.expiresInMinutes} minutes)` : '';
-      const login = payload.loginUrl ? `\nOrganisation Admin Login Portal: ${payload.loginUrl}` : '';
+      const login = payload.loginUrl ? `\nLogin Portal: ${payload.loginUrl}` : '';
       const instructions = payload.instructions ? `\n\n${payload.instructions}` : '';
       return {
-        title: `Reset Your NEXNUV Organisation Admin Password${org}`,
+        title: `Reset Your NEXNUV ${roleLabel} Password${org}`,
         message: `Hello ${who},${instructions}${link}${exp}${login}`
       };
     }
@@ -332,16 +333,17 @@ async function dispatchNotification({
           requestId
         });
       } else if (eventType === 'PASSWORD_RESET_REQUESTED') {
-        const safeName = String(recipientName || 'Administrator').replace(/[<>]/g, '');
+        const safeName = String(recipientName || 'User').replace(/[<>]/g, '');
         const safeOrg = String(payload.organisationName || 'your organisation').replace(/[<>]/g, '');
+        const safeRole = String(payload.roleLabel || 'Organisation Admin').replace(/[<>]/g, '');
         const resetLink = payload.resetLink || `${env.clientAppUrl}/forgot-password`;
         const loginUrl = payload.loginUrl || `${env.clientAppUrl}/org-login`;
         const expiresText = payload.expiresInMinutes ? `${payload.expiresInMinutes} minutes` : '60 minutes';
         const html = `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#0f172a;border:1px solid #e2e8f0;border-radius:12px;">
-            <h2 style="margin:0 0 12px;color:#1e1b4b;">Reset Your Organisation Admin Password</h2>
+            <h2 style="margin:0 0 12px;color:#1e1b4b;">Reset Your ${safeRole} Password</h2>
             <p style="font-size:14px;line-height:1.6;">Hello <strong>${safeName}</strong>,</p>
-            <p style="font-size:14px;line-height:1.6;">A password reset was requested for your <strong>${safeOrg}</strong> Organisation Admin account on NEXNUV Recruitment.</p>
+            <p style="font-size:14px;line-height:1.6;">A password reset was requested for your <strong>${safeOrg}</strong> (${safeRole}) account on NEXNUV Recruitment.</p>
             <p style="margin:24px 0;">
               <a href="${resetLink}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;">Set New Password</a>
             </p>

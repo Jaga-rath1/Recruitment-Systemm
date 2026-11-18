@@ -41,13 +41,17 @@ httpClient.interceptors.response.use(
     const requestUrl = String(error.config?.url || '');
     const isCredentialPost =
       requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/platform-admin/login') ||
+      requestUrl.includes('/auth/org-admin/login') ||
+      requestUrl.includes('/auth/recruiter/login') ||
       requestUrl.includes('/auth/candidate/login') ||
       requestUrl.includes('/auth/candidate/register') ||
       requestUrl.includes('/auth/candidate/verify-email') ||
       requestUrl.includes('/auth/candidate/resend-verification') ||
       requestUrl.includes('/auth/candidate/forgot-password') ||
       requestUrl.includes('/auth/candidate/reset-password');
-    if (status === 401 && !isCredentialPost && typeof window !== 'undefined') {
+    const isOptionalPlatformProxy = requestUrl.startsWith('/platform/') || requestUrl.includes('/api/v1/platform/');
+    if (status === 401 && !isCredentialPost && !isOptionalPlatformProxy && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('nexnuv:unauthorized'));
     }
 

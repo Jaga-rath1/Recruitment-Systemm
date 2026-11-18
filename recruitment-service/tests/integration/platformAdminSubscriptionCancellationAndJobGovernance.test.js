@@ -279,180 +279,19 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
     expect(actions).toContain('JOBS_AUTO_UNPUBLISHED_ON_CANCELLATION');
   });
 
-  it('Criteria 6, 7, 8, 9, 10, 11, 12, 13 & 19: Global Job Management listing, filtering, inspection, individual unpublish, and soft-discard preserving applications', async () => {
-    const orgActive = await provisionOrgWithSubscription({
-      organisationName: 'Solaris BioTech',
-      domain: 'solarisbio.test',
-      adminEmail: 'admin@solarisbio.test',
-      status: 'ACTIVE'
-    });
-    const orgCancelled = await provisionOrgWithSubscription({
-      organisationName: 'Helios Retail Group',
-      domain: 'heliosretail.test',
-      adminEmail: 'admin@heliosretail.test',
-      status: 'ACTIVE'
-    });
-
-    const solarisJob1 = (
-      await createAndMaybePublishJob(orgActive.orgAdminToken, {
-        title: 'Solaris Genomics ML Engineer',
-        publishImmediately: true
-      })
-    ).body.data;
-    const solarisJob2 = (
-      await createAndMaybePublishJob(orgActive.orgAdminToken, {
-        title: 'Solaris Lab Operations Lead',
-        publishImmediately: true
-      })
-    ).body.data;
-    const heliosJob = (
-      await createAndMaybePublishJob(orgCancelled.orgAdminToken, {
-        title: 'Helios Supply Chain Architect',
-        publishImmediately: true
-      })
-    ).body.data;
-
-    // Seed application on solarisJob2 before discarding it
-    const { application, interview } = await seedCandidateApplicationWithInterview(
-      orgActive.orgId,
-      solarisJob2.id
-    );
-
-    // Cancel Helios subscription so it becomes CANCELLED with UNPUBLISHED job
-    await request(app)
-      .post(`/api/v1/subscriptions/platform-admin/organisations/${orgCancelled.subscription.id}/cancel`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'Non-payment past invoice due date' });
-
-    // 1. Platform Admin lists all active (non-discarded) jobs across all organisations
-    const listAllRes = await request(app)
+  it('Global Job Governance routes are removed from Platform Admin API', async () => {
+    const listRes = await request(app)
       .get('/api/v1/jobs/platform-admin/jobs')
       .set('Authorization', `Bearer ${platformAdminToken}`);
-    expect(listAllRes.status).toBe(200);
-    expect(listAllRes.body.data.length).toBe(3);
-    expect(listAllRes.body.meta.total).toBe(3);
-
-    // 2. Filter by CANCELLED organisations
-    const cancelledFilterRes = await request(app)
-      .get('/api/v1/jobs/platform-admin/jobs?subscriptionStatus=CANCELLED')
-      .set('Authorization', `Bearer ${platformAdminToken}`);
-    expect(cancelledFilterRes.status).toBe(200);
-    expect(cancelledFilterRes.body.data.length).toBe(1);
-    expect(cancelledFilterRes.body.data[0].id).toBe(heliosJob.id);
-    expect(cancelledFilterRes.body.data[0].subscriptionStatus).toBe('CANCELLED');
-    expect(cancelledFilterRes.body.data[0].status).toBe('UNPUBLISHED');
-
-    // 3. Filter by search term matching organisation name
-    const searchRes = await request(app)
-      .get('/api/v1/jobs/platform-admin/jobs?search=Solaris')
-      .set('Authorization', `Bearer ${platformAdminToken}`);
-    expect(searchRes.status).toBe(200);
-    expect(searchRes.body.data.length).toBe(2);
-
-    // 4. Inspect full job details via Platform Admin endpoint
-    const detailRes = await request(app)
-      .get(`/api/v1/jobs/platform-admin/jobs/${solarisJob2.id}`)
-      .set('Authorization', `Bearer ${platformAdminToken}`);
-    expect(detailRes.status).toBe(200);
-    expect(detailRes.body.data.title).toBe('Solaris Lab Operations Lead');
-    expect(detailRes.body.data.organisationName).toBe('Solaris BioTech');
-    expect(detailRes.body.data.applicationCount).toBe(1);
-
-    // 5. Individual unpublish requires mandatory reason (>= 5 chars)
-    const badUnpubRes = await request(app)
-      .post(`/api/v1/jobs/platform-admin/jobs/${solarisJob1.id}/unpublish`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'bad' });
-    expect(badUnpubRes.status).toBe(422);
-
-    const unpubRes = await request(app)
-      .post(`/api/v1/jobs/platform-admin/jobs/${solarisJob1.id}/unpublish`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'Compliance policy review pending on salary disclosure' });
-    expect(unpubRes.status).toBe(200);
-    expect(unpubRes.body.data.status).toBe('UNPUBLISHED');
-    expect(unpubRes.body.data.isPublic).toBe(false);
-    expect(unpubRes.body.data.unpublishReason).toBe(
-      'Compliance policy review pending on salary disclosure'
-    );
-
-    // Public feed no longer shows solarisJob1, still shows solarisJob2
-    const feedMid = await request(app).get('/api/v1/jobs/public/careers');
-    const feedMidIds = feedMid.body.data.map((j) => j.id);
-    expect(feedMidIds).not.toContain(solarisJob1.id);
-    expect(feedMidIds).toContain(solarisJob2.id);
-
-    // 6. Soft-discard PUBLISHED job (solarisJob2) requires mandatory reason
-    const badDiscardRes = await request(app)
-      .post(`/api/v1/jobs/platform-admin/jobs/${solarisJob2.id}/discard`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: '' });
-    expect(badDiscardRes.status).toBe(422);
-
-    const discardRes = await request(app)
-      .post(`/api/v1/jobs/platform-admin/jobs/${solarisJob2.id}/discard`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'Duplicate fraudulent posting flagged by trust & safety' });
-    expect(discardRes.status).toBe(200);
-    expect(discardRes.body.data.isDiscarded).toBe(true);
-    expect(discardRes.body.data.status).toBe('UNPUBLISHED');
-    expect(discardRes.body.data.isPublic).toBe(false);
-    expect(discardRes.body.data.discardReason).toBe(
-      'Duplicate fraudulent posting flagged by trust & safety'
-    );
-
-    // Double discard returns 409 Conflict
-    const doubleDiscardRes = await request(app)
-      .post(`/api/v1/jobs/platform-admin/jobs/${solarisJob2.id}/discard`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'Second discard attempt' });
-    expect(doubleDiscardRes.status).toBe(409);
-
-    // Default ACTIVE_ONLY listing hides discarded job
-    const activeOnlyList = await request(app)
-      .get('/api/v1/jobs/platform-admin/jobs?discardFilter=ACTIVE_ONLY')
-      .set('Authorization', `Bearer ${platformAdminToken}`);
-    expect(activeOnlyList.body.data.map((j) => j.id)).not.toContain(solarisJob2.id);
-    expect(activeOnlyList.body.data.length).toBe(2);
-
-    // DISCARDED_ONLY listing shows discarded job
-    const discardedOnlyList = await request(app)
-      .get('/api/v1/jobs/platform-admin/jobs?discardFilter=DISCARDED_ONLY')
-      .set('Authorization', `Bearer ${platformAdminToken}`);
-    expect(discardedOnlyList.body.data.length).toBe(1);
-    expect(discardedOnlyList.body.data[0].id).toBe(solarisJob2.id);
-
-    // Public feed NEVER returns discarded job
-    const feedFinal = await request(app).get('/api/v1/jobs/public/careers');
-    expect(feedFinal.body.data.map((j) => j.id)).not.toContain(solarisJob2.id);
-    const directDiscardedPublic = await request(app).get(
-      `/api/v1/jobs/public/careers/${solarisJob2.id}`
-    );
-    expect(directDiscardedPublic.status).toBe(404);
-
-    // Applications & interviews on discarded job remain permanently intact
-    const { Application, Interview, RecruitmentAuditLog } = getModels();
-    expect(await Application.findByPk(application.id)).not.toBeNull();
-    expect(await Interview.findByPk(interview.id)).not.toBeNull();
-
-    // Audit logs recorded for individual unpublish & discard
-    const auditLogs = await RecruitmentAuditLog.findAll({
-      where: { organisationId: orgActive.orgId },
-      raw: true
-    });
-    const actions = auditLogs.map((l) => l.action);
-    expect(actions).toContain('JOB_UNPUBLISHED_BY_PLATFORM_ADMIN');
-    expect(actions).toContain('JOB_DISCARDED_BY_PLATFORM_ADMIN');
+    expect(listRes.status).toBe(404);
   });
 
-  it('Criteria 14, 15 & 16: Strict RBAC blocks Organisation Admins, Candidates, and Unauthenticated callers from Platform Admin governance endpoints', async () => {
+  it('Criteria 14, 15 & 16: Strict RBAC blocks Organisation Admins, Candidates, and Unauthenticated callers from Platform Admin subscription cancellation endpoint', async () => {
     const org = await provisionOrgWithSubscription({
       organisationName: 'Shield Defense Corp',
       domain: 'shielddefense.test',
       adminEmail: 'admin@shielddefense.test'
     });
-    const job = (await createAndMaybePublishJob(org.orgAdminToken, { publishImmediately: true }))
-      .body.data;
 
     const candidateToken = authAdapter.signAccessToken({
       sub: uuidv4(),
@@ -463,7 +302,6 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
     });
 
     // Unauthenticated -> 401
-    expect((await request(app).get('/api/v1/jobs/platform-admin/jobs')).status).toBe(401);
     expect(
       (
         await request(app)
@@ -473,29 +311,6 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
     ).toBe(401);
 
     // Org Admin -> 403
-    expect(
-      (
-        await request(app)
-          .get('/api/v1/jobs/platform-admin/jobs')
-          .set('Authorization', `Bearer ${org.orgAdminToken}`)
-      ).status
-    ).toBe(403);
-    expect(
-      (
-        await request(app)
-          .post(`/api/v1/jobs/platform-admin/jobs/${job.id}/unpublish`)
-          .set('Authorization', `Bearer ${org.orgAdminToken}`)
-          .send({ reason: 'Org admin trying governance route' })
-      ).status
-    ).toBe(403);
-    expect(
-      (
-        await request(app)
-          .post(`/api/v1/jobs/platform-admin/jobs/${job.id}/discard`)
-          .set('Authorization', `Bearer ${org.orgAdminToken}`)
-          .send({ reason: 'Org admin trying discard route' })
-      ).status
-    ).toBe(403);
     expect(
       (
         await request(app)
@@ -511,15 +326,6 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
     ).toContain(
       (
         await request(app)
-          .get('/api/v1/jobs/platform-admin/jobs')
-          .set('Authorization', `Bearer ${candidateToken}`)
-      ).status
-    );
-    expect(
-      [401, 403]
-    ).toContain(
-      (
-        await request(app)
           .post(`/api/v1/subscriptions/platform-admin/organisations/${org.subscription.id}/cancel`)
           .set('Authorization', `Bearer ${candidateToken}`)
           .send({ reason: 'Candidate trying cancel route' })
@@ -527,7 +333,7 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
     );
   });
 
-  it('Criteria 17 & 18: Cancelled organisation cannot publish jobs; reactivating subscription does NOT auto-republish jobs; discarded jobs can never be published', async () => {
+  it('Criteria 17 & 18: Cancelled organisation cannot publish jobs; reactivating subscription does NOT auto-republish jobs', async () => {
     const org = await provisionOrgWithSubscription({
       organisationName: 'Nova Mobility Systems',
       domain: 'novamobility.test',
@@ -540,18 +346,6 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
         publishImmediately: true
       })
     ).body.data;
-    const job2 = (
-      await createAndMaybePublishJob(org.orgAdminToken, {
-        title: 'Nova Fleet Telemetry Lead',
-        publishImmediately: true
-      })
-    ).body.data;
-
-    // Discard job2
-    await request(app)
-      .post(`/api/v1/jobs/platform-admin/jobs/${job2.id}/discard`)
-      .set('Authorization', `Bearer ${platformAdminToken}`)
-      .send({ reason: 'Archived permanently by platform governance' });
 
     // Cancel subscription -> job1 auto-unpublished
     await request(app)
@@ -596,19 +390,12 @@ describe('Platform Admin Subscription Cancellation, Auto-Unpublishing & Global J
     const feedAfterReactivate = await request(app).get('/api/v1/jobs/public/careers');
     expect(feedAfterReactivate.body.data.map((j) => j.id)).not.toContain(job1.id);
 
-    // 5. After reactivation, org CAN manually republish non-discarded job1
+    // 5. After reactivation, org CAN manually republish job1
     const manualRepubRes = await request(app)
       .post(`/api/v1/jobs/${job1.id}/publish`)
       .set('Authorization', `Bearer ${org.orgAdminToken}`);
     expect(manualRepubRes.status).toBe(200);
     expect(manualRepubRes.body.data.status).toBe('PUBLISHED');
-
-    // 6. Even after reactivation, discarded job2 CANNOT be published (409 JOB_DISCARDED)
-    const publishDiscardedRes = await request(app)
-      .post(`/api/v1/jobs/${job2.id}/publish`)
-      .set('Authorization', `Bearer ${org.orgAdminToken}`);
-    expect(publishDiscardedRes.status).toBe(409);
-    expect(publishDiscardedRes.body.error.code).toBe('JOB_DISCARDED');
   });
 
   it('Criteria 20: Transaction rollback safety — if bulk job unpublishing fails mid-transaction, subscription remains ACTIVE and jobs remain PUBLISHED', async () => {

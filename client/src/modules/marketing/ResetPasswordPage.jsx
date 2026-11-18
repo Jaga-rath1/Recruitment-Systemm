@@ -13,13 +13,33 @@ export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const { addToast } = useToast();
 
+  const portal = searchParams.get('portal');
+  const initialLoginPath = portal === 'org' ? '/org-login' : portal === 'recruiter' ? '/recruiter-login' : '/login';
+  const forgotPasswordPath = portal === 'org'
+    ? '/forgot-password?portal=org'
+    : portal === 'recruiter'
+      ? '/forgot-password?portal=recruiter'
+      : '/forgot-password';
+
   const [token, setToken] = useState(searchParams.get('token') || '');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [completed, setCompleted] = useState(false);
-  const [loginPath, setLoginPath] = useState(searchParams.get('portal') === 'org' ? '/org-login' : '/login');
+  const [loginPath, setLoginPath] = useState(initialLoginPath);
   const [resetEmail, setResetEmail] = useState('');
+
+  const pageTitle = loginPath === '/org-login'
+    ? 'Set New Organisation Admin Password'
+    : loginPath === '/recruiter-login'
+      ? 'Set New Recruiter Password'
+      : 'Choose New Account Password';
+
+  const signInCtaLabel = loginPath === '/org-login'
+    ? 'Sign In to Organisation Admin Portal'
+    : loginPath === '/recruiter-login'
+      ? 'Sign In to Recruiter Portal'
+      : 'Sign In With New Password';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -56,7 +76,7 @@ export default function ResetPasswordPage() {
     <PageTransition className="w-full px-4 py-12 sm:px-6 sm:py-16 lg:px-10 xl:px-12">
       <div className="mx-auto max-w-lg">
         <Card
-          title={loginPath === '/org-login' ? 'Set New Organisation Admin Password' : 'Choose New Account Password'}
+          title={pageTitle}
           subtitle="Passwords require 8+ characters including uppercase, lowercase, numeric, and special characters."
         >
           {completed ? (
@@ -71,7 +91,7 @@ export default function ResetPasswordPage() {
                 className="w-full"
                 onClick={() => navigate(loginPath, resetEmail ? { state: { email: resetEmail } } : undefined)}
               >
-                {loginPath === '/org-login' ? 'Sign In to Organisation Admin Portal' : 'Sign In With New Password'}
+                {signInCtaLabel}
               </Button>
             </div>
           ) : (
@@ -105,7 +125,7 @@ export default function ResetPasswordPage() {
                 Reset Password
               </Button>
               <div className="text-center text-xs text-slate-500">
-                <Link to="/forgot-password" className="font-semibold text-brand-600 hover:underline">
+                <Link to={forgotPasswordPath} className="font-semibold text-brand-600 hover:underline">
                   Request a new reset link
                 </Link>
               </div>

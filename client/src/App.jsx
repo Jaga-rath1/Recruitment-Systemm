@@ -39,7 +39,6 @@ const PlatformOrganisationsPage = lazy(() => import('./modules/platform/Platform
 const PlatformEntitlementsPage = lazy(() => import('./modules/platform/PlatformEntitlementsPage'));
 const PlatformConfigurationPage = lazy(() => import('./modules/platform/PlatformConfigurationPage'));
 const PlatformAdministrationPage = lazy(() => import('./modules/platform/PlatformAdministrationPage'));
-const PlatformAdminJobManagementPage = lazy(() => import('./modules/platform/PlatformAdminJobManagementPage'));
 
 // Lazy-loaded Organisation workspace
 const OrganisationDashboardPage = lazy(() => import('./modules/organisation/OrganisationDashboardPage'));
@@ -124,14 +123,13 @@ export function AppRoutes() {
           </Route>
         </Route>
 
-        {/* Platform Admin Workspace (7 Core Modules + Verification Queue + Job Governance) */}
+        {/* Platform Admin Workspace (7 Core Modules + Verification Queue) */}
         <Route element={<ProtectedRoute allowedUserTypes={['PLATFORM_ADMIN']} />}>
           <Route path="/platform-admin" element={<DashboardLayout />}>
             <Route index element={<PlatformOverviewPage />} />
             <Route path="plans" element={<PlatformPlansPage />} />
             <Route path="subscriptions" element={<PlatformSubscriptionsPage />} />
             <Route path="organisations" element={<PlatformOrganisationsPage />} />
-            <Route path="jobs" element={<PlatformAdminJobManagementPage />} />
             <Route path="entitlements" element={<PlatformEntitlementsPage />} />
             <Route path="configuration" element={<PlatformConfigurationPage />} />
             <Route path="administration" element={<PlatformAdministrationPage />} />

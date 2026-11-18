@@ -4,19 +4,11 @@ const validate = require('../../middleware/validate');
 const { containsUnsafeKeys } = require('../../utils/validationHelpers');
 const { authenticate } = require('../../middleware/auth');
 const { requireTenant } = require('../../middleware/tenantIsolation');
-const { requirePermission, requirePlatformAdmin } = require('../../middleware/rbac');
+const { requirePermission } = require('../../middleware/rbac');
 const controller = require('./job.controller');
-const platformAdminJobController = require('./platformAdminJob.controller');
 
 const router = express.Router();
 const uuidParam = { params: z.object({ id: z.string().uuid() }) };
-
-const reasonSchema = {
-  ...uuidParam,
-  body: z.object({
-    reason: z.string().trim().min(5, 'Mandatory reason must be at least 5 characters long').max(1000)
-  })
-};
 
 const createJobSchema = {
   body: z.object({
@@ -51,12 +43,6 @@ const updateJobSchema = {
 // Public Careers endpoints
 router.get('/public/careers', controller.listPublicJobs);
 router.get('/public/careers/:identifier', controller.getPublicJob);
-
-// Platform Admin Global Job Governance
-router.get('/platform-admin/jobs', authenticate, requirePlatformAdmin, platformAdminJobController.listPlatformAdminJobs);
-router.get('/platform-admin/jobs/:id', authenticate, requirePlatformAdmin, validate(uuidParam), platformAdminJobController.getPlatformAdminJobDetails);
-router.post('/platform-admin/jobs/:id/unpublish', authenticate, requirePlatformAdmin, validate(reasonSchema), platformAdminJobController.unpublishPlatformAdminJob);
-router.post('/platform-admin/jobs/:id/discard', authenticate, requirePlatformAdmin, validate(reasonSchema), platformAdminJobController.discardPlatformAdminJob);
 
 // Internal Organisation endpoints
 router.post('/hrms/sync', authenticate, requireTenant, requirePermission('job:hrms:sync'), controller.syncHrms);

@@ -11,12 +11,34 @@ import { PageTransition } from '../../components/common/MotionPrimitives';
 export default function ForgotPasswordPage() {
   const [searchParams] = useSearchParams();
   const { addToast } = useToast();
-  const isOrgPortal = searchParams.get('portal') === 'org';
+  const portal = searchParams.get('portal');
+  const isOrgPortal = portal === 'org';
+  const isRecruiterPortal = portal === 'recruiter';
   const [email, setEmail] = useState(searchParams.get('email') || '');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const loginBackPath = isOrgPortal ? '/org-login' : '/login';
+  const loginBackPath = isOrgPortal ? '/org-login' : isRecruiterPortal ? '/recruiter-login' : '/login';
+  const resetPasswordPath = isOrgPortal
+    ? '/reset-password?portal=org'
+    : isRecruiterPortal
+      ? '/reset-password?portal=recruiter'
+      : '/reset-password';
+  const pageTitle = isOrgPortal
+    ? 'Reset Organisation Admin Password'
+    : isRecruiterPortal
+      ? 'Reset Recruiter Password'
+      : 'Reset Account Password';
+  const emailLabel = isOrgPortal
+    ? 'Organisation Admin Email Address'
+    : isRecruiterPortal
+      ? 'Recruiter Work Email Address'
+      : 'Account Email Address';
+  const emailPlaceholder = isOrgPortal
+    ? 'admin@yourcompany.com'
+    : isRecruiterPortal
+      ? 'recruiter@company.com'
+      : 'jordan@example.com';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,8 +62,8 @@ export default function ForgotPasswordPage() {
     <PageTransition className="w-full px-4 py-12 sm:px-6 sm:py-16 lg:px-10 xl:px-12">
       <div className="mx-auto max-w-lg">
         <Card
-          title={isOrgPortal ? 'Reset Organisation Admin Password' : 'Reset Account Password'}
-          subtitle="Request a time-limited single-use recovery link for your Candidate or Organisation Admin account."
+          title={pageTitle}
+          subtitle="Request a time-limited single-use recovery link for your Candidate, Organisation Admin, or Recruiter account."
         >
           {submitted ? (
             <div className="space-y-4 py-2">
@@ -52,7 +74,7 @@ export default function ForgotPasswordPage() {
                 If an active account exists for <strong>{email}</strong>, a password reset link has been sent to your inbox. Please check your email (and spam folder) and open the link to set a new password.
               </p>
               <div className="flex flex-wrap gap-3 pt-2">
-                <Link to={isOrgPortal ? '/reset-password?portal=org' : '/reset-password'}>
+                <Link to={resetPasswordPath}>
                   <Button variant="secondary">I Have a Reset Token</Button>
                 </Link>
                 <Link to={loginBackPath}>
@@ -63,21 +85,21 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <InputField
-                label={isOrgPortal ? 'Organisation Admin Email Address' : 'Account Email Address'}
+                label={emailLabel}
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={isOrgPortal ? 'admin@yourcompany.com' : 'jordan@example.com'}
+                placeholder={emailPlaceholder}
               />
               <p className="text-xs text-slate-500">
-                Works for both verified Candidate accounts and active Organisation Admin accounts.
+                Works for verified Candidate accounts, active Organisation Admin accounts, and active Recruiter / Interviewer accounts.
               </p>
               <Button type="submit" loading={loading} className="w-full">
                 Send Reset Instructions
               </Button>
               <div className="flex items-center justify-between pt-2 text-xs text-slate-600">
-                <Link to={isOrgPortal ? '/reset-password?portal=org' : '/reset-password'} className="font-semibold text-brand-600 hover:underline">
+                <Link to={resetPasswordPath} className="font-semibold text-brand-600 hover:underline">
                   Already have a reset token?
                 </Link>
                 <Link to={loginBackPath} className="hover:text-slate-900">

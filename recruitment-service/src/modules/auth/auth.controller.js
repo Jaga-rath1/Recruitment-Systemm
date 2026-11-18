@@ -6,6 +6,7 @@ const authAdapter = require('../../integrations/auth/auth.adapter');
 const organisationAdapter = require('../../integrations/organisation/organisation.adapter');
 const candidateIdentityService = require('../candidate/candidateIdentity.service');
 const orgAdminRecoveryService = require('../subscription/platformAdminOrganisationRecovery.service');
+const employeePasswordResetService = require('../organisation/employeePasswordReset.service');
 const authPortalService = require('./authPortal.service');
 const { resolveEffectivePermissions } = require('../../middleware/rbac');
 
@@ -123,8 +124,11 @@ const forgotCandidatePassword = asyncHandler(async (req, res) => {
     ...meta
   });
 
-  // Also support self-service password reset for active/trial Organisation Admins
-  await orgAdminRecoveryService.requestOrgAdminPasswordResetByEmail(req.body.email, meta);
+  // Also support self-service password reset for active/trial Organisation Admins and Recruiters/Employees
+  const orgRes = await orgAdminRecoveryService.requestOrgAdminPasswordResetByEmail(req.body.email, meta);
+  if (!orgRes?.found) {
+    await employeePasswordResetService.requestEmployeePasswordResetByEmail(req.body.email, meta);
+  }
 
   return sendSuccess(res, {
     message: result.message,
@@ -135,7 +139,7 @@ const forgotCandidatePassword = asyncHandler(async (req, res) => {
 const resetCandidatePassword = asyncHandler(async (req, res) => {
   const meta = requestMeta(req);
 
-  // Check if token belongs to an Organisation Admin password reset first
+  // 1. Check if token belongs to an Organisation Admin password reset
   const orgResetResult = await orgAdminRecoveryService.completeOrgAdminPasswordReset(
     {
       token: req.body.token,
@@ -151,6 +155,23 @@ const resetCandidatePassword = asyncHandler(async (req, res) => {
     });
   }
 
+  // 2. Check if token belongs to a Recruiter / Hiring Team employee password reset
+  const empResetResult = await employeePasswordResetService.completeEmployeePasswordReset(
+    {
+      token: req.body.token,
+      newPassword: req.body.newPassword
+    },
+    meta
+  );
+
+  if (empResetResult) {
+    return sendSuccess(res, {
+      message: empResetResult.message,
+      data: empResetResult
+    });
+  }
+
+  // 3. Fall back to Candidate Portal password reset
   const result = await candidateIdentityService.resetCandidatePassword({
     token: req.body.token,
     newPassword: req.body.newPassword,

@@ -120,6 +120,15 @@ export default function RecruiterLoginPage() {
           placeholder="••••••••"
         />
 
+        <div className="flex justify-end -mt-2">
+          <Link
+            to={form.email ? `/forgot-password?portal=recruiter&email=${encodeURIComponent(form.email)}` : '/forgot-password?portal=recruiter'}
+            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </div>
+
         <Button type="submit" variant="primary" className="w-full bg-emerald-600 hover:bg-emerald-700" loading={loading}>
           Sign In to Hiring Portal
         </Button>

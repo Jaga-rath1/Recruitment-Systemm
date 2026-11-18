@@ -735,13 +735,14 @@ async function registerOrLoginCandidate({
     });
   }
 
-  // In standalone mode, prefer local standalone accounts (e.g. provisioned/reset Org Admins & Recruiters)
+  // In standalone mode, prefer local standalone ORG_USER accounts (provisioned/reset Org Admins & Recruiters)
   // before consulting an external Auth Service on AUTH_SERVICE_URL, preventing stale external role collisions.
+  // PLATFORM_ADMIN still authenticates against Auth Service first when online so its JWT works across /api/v1/platform/* (API Gateway :4000).
   if (env.integrationMode === 'standalone') {
     const localRecord = standaloneUsersByEmail.get(normalizedEmail);
     if (
       localRecord &&
-      localRecord.userType !== 'CANDIDATE' &&
+      localRecord.userType === 'ORG_USER' &&
       localRecord.isActive !== false &&
       localRecord.passwordHash &&
       verifyPassword(password, localRecord.passwordHash)
@@ -770,6 +771,7 @@ async function registerOrLoginCandidate({
         method: 'POST',
         path: '/api/v1/auth/login',
         requestId,
+        timeoutMs: Math.max(env.services.requestTimeoutMs || 5000, 12000),
         body: { email: normalizedEmail, password }
       });
 
@@ -922,6 +924,16 @@ async function updateOrgUserPassword({
   return { userId, email: normalizedEmail };
 }
 
+function findStandaloneUserByEmail(email) {
+  if (!email) return null;
+  return standaloneUsersByEmail.get(String(email).trim().toLowerCase()) || null;
+}
+
+function findStandaloneUserById(userId) {
+  if (!userId) return null;
+  return standaloneUsersById.get(userId) || null;
+}
+
 function seedStandaloneUser(user) {
   const normalizedEmail = user.email.trim().toLowerCase();
   const record = {
@@ -971,6 +983,8 @@ module.exports = {
   updateOrgUserPassword,
   setAuthUserStatus,
   registerOrLoginCandidate,
+  findStandaloneUserByEmail,
+  findStandaloneUserById,
   seedStandaloneUser,
   clearStandaloneUsers
 };

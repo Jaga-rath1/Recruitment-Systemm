@@ -79,11 +79,7 @@ export const jobApi = {
   updateJob: (id, payload) => httpClient.patch(`/jobs/${id}`, payload),
   publish: (id) => httpClient.post(`/jobs/${id}/publish`),
   unpublish: (id) => httpClient.post(`/jobs/${id}/unpublish`),
-  close: (id) => httpClient.post(`/jobs/${id}/close`),
-  listPlatformAdminJobs: (params) => httpClient.get('/jobs/platform-admin/jobs', { params }),
-  getPlatformAdminJobDetails: (id) => httpClient.get(`/jobs/platform-admin/jobs/${id}`),
-  unpublishPlatformAdminJob: (id, payload) => httpClient.post(`/jobs/platform-admin/jobs/${id}/unpublish`, payload),
-  discardPlatformAdminJob: (id, payload) => httpClient.post(`/jobs/platform-admin/jobs/${id}/discard`, payload)
+  close: (id) => httpClient.post(`/jobs/${id}/close`)
 };
 
 export const applicationApi = {

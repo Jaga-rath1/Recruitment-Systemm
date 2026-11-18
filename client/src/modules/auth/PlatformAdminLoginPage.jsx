@@ -107,7 +107,7 @@ export default function PlatformAdminLoginPage() {
           required
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
-          placeholder="superadmin@nexnuv.com"
+          placeholder="platformadmin@nexnuv.com"
         />
 
         <InputField

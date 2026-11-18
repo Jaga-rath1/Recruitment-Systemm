@@ -23,7 +23,7 @@ import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
 import { InputField, SelectField } from '../../components/common/FormField';
 import { PageTransition } from '../../components/common/MotionPrimitives';
-import { platformApi } from '../../api';
+import { platformApi, subscriptionApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatPlanPrice } from '../../utils/currency';
 import SubscriptionFormModal from './components/SubscriptionFormModal';
@@ -38,6 +38,7 @@ export default function PlatformSubscriptionsPage() {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [fallbackNotice, setFallbackNotice] = useState(null);
 
   // Search and Filters
   const [searchTerm, setSearchTerm] = useState(initialOrgId);
@@ -57,13 +58,43 @@ export default function PlatformSubscriptionsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setFallbackNotice(null);
     try {
-      const [subsRes, plansRes] = await Promise.all([
+      const [subsOutcome, plansOutcome] = await Promise.allSettled([
         platformApi.listSubscriptions(),
         platformApi.listPlans()
       ]);
-      setSubscriptions(subsRes.data || []);
-      setPlans(plansRes.data || []);
+
+      let loadedSubs = subsOutcome.status === 'fulfilled' ? (subsOutcome.value?.data || []) : null;
+      let loadedPlans = plansOutcome.status === 'fulfilled' ? (plansOutcome.value?.data || []) : [];
+
+      if (loadedSubs === null) {
+        const primaryErr = subsOutcome.reason?.message || 'Platform Service unavailable';
+        // Fallback to Recruitment Service persisted subscriptions ledger
+        const orgsRes = await subscriptionApi.listOrganisations({ limit: 100 });
+        const orgRows = orgsRes?.data || [];
+        loadedSubs = orgRows.map((o) => ({
+          id: o.subscriptionId,
+          organizationId: o.organisationId || o.subscriptionId,
+          organizationName: o.organisationName,
+          status: String(o.status || 'active').toLowerCase(),
+          startsAt: o.startsAt,
+          endsAt: o.expiresAt,
+          trialEndsAt: String(o.status || '').toUpperCase() === 'TRIAL' ? o.expiresAt : null,
+          plan: {
+            name: o.planName || o.planCode || 'Recruitment Plan',
+            price: Number(o.amountCents || 0) / 100,
+            billingCycle: String(o.billingCycle || 'monthly').toLowerCase() === 'annual' ? 'yearly' : 'monthly',
+            currency: o.currency || 'INR'
+          }
+        }));
+        setFallbackNotice(
+          `Showing persisted Recruitment Service subscriptions (Platform Service gateway returned: ${primaryErr}).`
+        );
+      }
+
+      setSubscriptions(loadedSubs);
+      setPlans(loadedPlans);
     } catch (err) {
       setError(err.message || 'Failed to fetch subscriptions');
       addToast({ title: 'Error loading subscriptions', message: err.message, variant: 'error' });
@@ -80,6 +111,7 @@ export default function PlatformSubscriptionsPage() {
     return subscriptions.filter((s) => {
       const matchesSearch =
         !searchTerm ||
+        s.organizationName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.organizationId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.plan?.name?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -166,7 +198,12 @@ export default function PlatformSubscriptionsPage() {
       label: 'Tenant & ID',
       render: (row) => (
         <div>
-          <span className="font-mono text-xs font-semibold text-slate-900 block truncate max-w-[220px]" title={row.organizationId}>
+          {row.organizationName && (
+            <span className="font-semibold text-xs text-slate-900 block truncate max-w-[220px]">
+              {row.organizationName}
+            </span>
+          )}
+          <span className="font-mono text-xs font-semibold text-slate-700 block truncate max-w-[220px]" title={row.organizationId}>
             {row.organizationId}
           </span>
           <span className="font-mono text-[10px] text-slate-400 block truncate max-w-[200px]" title={row.id}>
@@ -300,6 +337,19 @@ export default function PlatformSubscriptionsPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 flex items-center justify-between gap-3">
+          <span>Unable to load subscriptions: {error}</span>
+          <Button size="sm" variant="secondary" onClick={loadData}>Retry</Button>
+        </div>
+      )}
+
+      {fallbackNotice && !error && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          {fallbackNotice}
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <Card noPadding>

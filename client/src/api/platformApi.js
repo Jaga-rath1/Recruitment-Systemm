@@ -31,10 +31,21 @@ platformHttpClient.interceptors.request.use((config) => {
 
 platformHttpClient.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
+    const config = error.config || {};
+    const status = error.response?.status || (!error.response ? 503 : 500);
+    const isIdempotentGet = String(config.method || 'get').toLowerCase() === 'get';
+    const isRetryable = status === 500 || status === 502 || status === 503 || status === 504 || !error.response;
+
+    if (isIdempotentGet && isRetryable && !config._retried) {
+      config._retried = true;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return platformHttpClient.request(config);
+    }
+
     const serverErr = error.response?.data?.error || error.response?.data;
     const isNetworkOrTimeout = !error.response && (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK');
-    const status = error.response?.status || (isNetworkOrTimeout ? 503 : 500);
+    const resolvedStatus = error.response?.status || (isNetworkOrTimeout ? 503 : 500);
     const fallbackMsg = isNetworkOrTimeout
       ? 'Platform Service or API Gateway is unreachable. Please verify services on port 4000/4002.'
       : error.message || 'Request failed';
@@ -46,8 +57,8 @@ platformHttpClient.interceptors.response.use(
       fallbackMsg;
 
     const err = new Error(message);
-    err.status = status;
-    err.code = serverErr?.code || (status === 503 ? 'SERVICE_UNAVAILABLE' : 'REQUEST_ERROR');
+    err.status = resolvedStatus;
+    err.code = serverErr?.code || (resolvedStatus === 503 ? 'SERVICE_UNAVAILABLE' : 'REQUEST_ERROR');
     err.details = serverErr?.details || null;
 
     // Do NOT dispatch global nexnuv:unauthorized here:

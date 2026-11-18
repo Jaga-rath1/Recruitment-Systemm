@@ -17,7 +17,7 @@ import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
 import DataTable from '../../components/common/DataTable';
 import { PageTransition } from '../../components/common/MotionPrimitives';
-import { platformApi } from '../../api';
+import { platformApi, subscriptionApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { formatPlanPrice } from '../../utils/currency';
 import PlanFormModal from './components/PlanFormModal';
@@ -29,6 +29,7 @@ export default function PlatformPlansPage() {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [fallbackNotice, setFallbackNotice] = useState(null);
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,12 +48,64 @@ export default function PlatformPlansPage() {
   const loadPlans = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setFallbackNotice(null);
     try {
       const res = await platformApi.listPlans();
       setPlans(res.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to fetch platform plans');
-      addToast({ title: 'Error loading plans', message: err.message, variant: 'error' });
+      // Fallback to Recruitment Service catalog if Platform Service (:4000/:4002) is unreachable or token-mismatched
+      try {
+        const recPlansRes = await subscriptionApi.getPlans();
+        const catalog = recPlansRes?.data?.plans || recPlansRes?.data || [];
+        const normalized = [];
+        for (const tier of Array.isArray(catalog) ? catalog : []) {
+          const monthlyCents = tier.pricing?.MONTHLY?.amountCents ?? tier.monthlyAmountCents ?? 0;
+          const annualCents = tier.pricing?.ANNUAL?.amountCents ?? tier.annualAmountCents ?? 0;
+          const currency = tier.pricing?.MONTHLY?.currency || tier.currency || 'INR';
+          if (monthlyCents > 0) {
+            normalized.push({
+              id: `${tier.code}-monthly`,
+              name: `${tier.name} (Monthly)`,
+              code: `${tier.code}_MONTHLY`,
+              description: tier.description || tier.tagline || '',
+              price: monthlyCents / 100,
+              currency,
+              billingCycle: 'monthly',
+              trialDays: 15,
+              status: 'active',
+              modules: tier.features || [],
+              submodules: []
+            });
+          }
+          if (annualCents > 0) {
+            normalized.push({
+              id: `${tier.code}-annual`,
+              name: `${tier.name} (Annual)`,
+              code: `${tier.code}_ANNUAL`,
+              description: tier.description || tier.tagline || '',
+              price: annualCents / 100,
+              currency,
+              billingCycle: 'yearly',
+              trialDays: 15,
+              status: 'active',
+              modules: tier.features || [],
+              submodules: []
+            });
+          }
+        }
+        if (normalized.length > 0) {
+          setPlans(normalized);
+          setFallbackNotice(
+            `Showing Recruitment Service catalog plans (Platform Service gateway returned: ${err.message}). Sign in with platformadmin@nexnuv.com to manage shared Platform Service plans.`
+          );
+        } else {
+          setError(err.message || 'Failed to fetch platform plans');
+          addToast({ title: 'Error loading plans', message: err.message, variant: 'error' });
+        }
+      } catch (_fallbackErr) {
+        setError(err.message || 'Failed to fetch platform plans');
+        addToast({ title: 'Error loading plans', message: err.message, variant: 'error' });
+      }
     } finally {
       setLoading(false);
     }
@@ -243,6 +296,19 @@ export default function PlatformPlansPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 flex items-center justify-between gap-3">
+          <span>Unable to load platform plans: {error}</span>
+          <Button size="sm" variant="secondary" onClick={loadPlans}>Retry</Button>
+        </div>
+      )}
+
+      {fallbackNotice && !error && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          {fallbackNotice}
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <Card noPadding>

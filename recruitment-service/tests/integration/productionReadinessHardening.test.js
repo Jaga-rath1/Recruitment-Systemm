@@ -306,6 +306,101 @@ describe('Production Readiness Hardening Suite — Security, Concurrency, Failur
     expect(oldPassRes.status).toBe(401);
   });
 
+  it('Phase 2.C & 2.D: Self-Service Forgot & Reset Password E2E for both Organisation Admin and Recruiter portals', async () => {
+    const sentEmails = [];
+    emailAdapter.setTestEmailTransport(async (payload) => {
+      sentEmails.push(payload);
+      return { delivered: true, provider: 'TEST', messageId: `msg-self-${sentEmails.length}` };
+    });
+
+    const { adminEmail, recEmp } = await provisionPaidOrgAndRecruiter('SelfReset');
+
+    // 1. Organisation Admin self-service forgot password
+    const orgForgotRes = await request(app)
+      .post('/api/v1/auth/candidate/forgot-password')
+      .send({ email: adminEmail });
+    expect(orgForgotRes.status).toBe(200);
+
+    const orgEmail = sentEmails.find(
+      (e) => e.category === 'NOTIFICATION_PASSWORD_RESET_REQUESTED' && e.to === adminEmail
+    );
+    expect(orgEmail).toBeTruthy();
+    expect(orgEmail.html).toContain('portal=org');
+    const orgToken = orgEmail.html.match(/token=([a-f0-9]+)/i)?.[1];
+    expect(orgToken).toBeTruthy();
+
+    const orgResetRes = await request(app)
+      .post('/api/v1/auth/candidate/reset-password')
+      .send({
+        token: orgToken,
+        newPassword: 'OrgSelfReset!2026',
+        confirmPassword: 'OrgSelfReset!2026'
+      });
+    expect(orgResetRes.status).toBe(200);
+    expect(orgResetRes.body.data.accountType).toBe('ORGANISATION_ADMIN');
+    expect(orgResetRes.body.data.loginPath).toBe('/org-login');
+
+    const orgLoginOk = await request(app)
+      .post('/api/v1/auth/org-admin/login')
+      .send({ email: adminEmail, password: 'OrgSelfReset!2026' });
+    expect(orgLoginOk.status).toBe(200);
+    expect(orgLoginOk.body.data.user.activeRoleCode).toBe('ORGANISATION_ADMIN');
+
+    // 2. Recruiter self-service forgot password
+    const recForgotRes = await request(app)
+      .post('/api/v1/auth/candidate/forgot-password')
+      .send({ email: recEmp.email });
+    expect(recForgotRes.status).toBe(200);
+
+    const recEmail = sentEmails.find(
+      (e) => e.category === 'NOTIFICATION_PASSWORD_RESET_REQUESTED' && e.to === recEmp.email
+    );
+    expect(recEmail).toBeTruthy();
+    expect(recEmail.html).toContain('portal=recruiter');
+    const recToken = recEmail.html.match(/token=([a-f0-9]+)/i)?.[1];
+    expect(recToken).toBeTruthy();
+
+    const recResetRes = await request(app)
+      .post('/api/v1/auth/candidate/reset-password')
+      .send({
+        token: recToken,
+        newPassword: 'RecruiterReset!2026',
+        confirmPassword: 'RecruiterReset!2026'
+      });
+    expect(recResetRes.status).toBe(200);
+    expect(recResetRes.body.data.accountType).toBe('RECRUITER');
+    expect(recResetRes.body.data.loginPath).toBe('/recruiter-login');
+
+    // Token reuse rejected
+    const recReuseRes = await request(app)
+      .post('/api/v1/auth/candidate/reset-password')
+      .send({
+        token: recToken,
+        newPassword: 'AnotherRecPass!2026',
+        confirmPassword: 'AnotherRecPass!2026'
+      });
+    expect(recReuseRes.status).toBe(400);
+
+    // Recruiter login succeeds with new password
+    const recLoginOk = await request(app)
+      .post('/api/v1/auth/recruiter/login')
+      .send({ email: recEmp.email, password: 'RecruiterReset!2026' });
+    expect(recLoginOk.status).toBe(200);
+    expect(recLoginOk.body.data.user.activeRoleCode).toBe('RECRUITER');
+
+    // Wrong password rejected
+    const recLoginBad = await request(app)
+      .post('/api/v1/auth/recruiter/login')
+      .send({ email: recEmp.email, password: 'WrongPassword!2026' });
+    expect(recLoginBad.status).toBe(401);
+
+    // Recruiter remains strictly blocked from Organisation Admin portal
+    const recOnAdminPortal = await request(app)
+      .post('/api/v1/auth/org-admin/login')
+      .send({ email: recEmp.email, password: 'RecruiterReset!2026' });
+    expect(recOnAdminPortal.status).toBe(403);
+  });
+
   it('Phase 2.H, 4 & 6: Employee Sync outage recovery, concurrent retry deduplication, and pending-sync operational diagnostics visibility', async () => {
     const { orgId, adminToken } = await provisionPaidOrgAndRecruiter('SyncResilience');
 
