@@ -68,6 +68,7 @@ router.patch('/employees/:employeeId/role', authenticate, requireTenant, require
 router.patch('/employees/:employeeId/permissions', authenticate, requireTenant, requirePermission('employee:manage'), validate(updatePermsSchema), controller.updatePermissions);
 router.patch('/employees/:employeeId/deactivate', authenticate, requireTenant, requirePermission('employee:manage'), validate(empParams), controller.deactivateAccess);
 router.patch('/employees/:employeeId/reactivate', authenticate, requireTenant, requirePermission('employee:manage'), validate(empParams), controller.reactivateAccess);
+router.delete('/employees/:employeeId', authenticate, requireTenant, requirePermission('employee:manage'), validate(empParams), controller.deleteEmployee);
 router.get('/employees/:employeeId/activity', authenticate, requireTenant, requirePermission('employee:view'), validate(empParams), controller.getActivity);
 
 module.exports = router;

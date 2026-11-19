@@ -14,16 +14,25 @@ function extractResetTokenFromText(text = '') {
   return lineMatch ? lineMatch[1] : null;
 }
 
+function extractActivationTokenFromText(text = '') {
+  const urlMatch = String(text).match(/activate-candidate\?token=([A-Za-z0-9_-]{20,})/) ||
+                   String(text).match(/token=([A-Za-z0-9_-]{20,})/);
+  if (urlMatch) return decodeURIComponent(urlMatch[1]);
+  return null;
+}
+
 function createEmailCaptureHarness() {
   const messages = [];
 
   emailAdapter.setTestEmailTransport(async (payload) => {
     const otp = extractOtpFromText(payload.text);
     const resetToken = extractResetTokenFromText(payload.text);
+    const activationToken = extractActivationTokenFromText(payload.text || payload.html || '');
     const entry = {
       ...payload,
       otp,
-      resetToken
+      resetToken,
+      activationToken
     };
     messages.push(entry);
     return {
@@ -50,6 +59,11 @@ function createEmailCaptureHarness() {
     },
     getLatestResetToken(email) {
       return this.getLatestFor(email, 'CANDIDATE_PASSWORD_RESET')?.resetToken || null;
+    },
+    getLatestActivationToken(email) {
+      const msg = this.getLatestFor(email, 'CANDIDATE_ACCOUNT_ACTIVATION') ||
+                  this.getLatestFor(email, 'NOTIFICATION_CANDIDATE_ACCOUNT_ACTIVATION');
+      return msg?.activationToken || extractActivationTokenFromText(msg?.text || msg?.html || '') || null;
     },
     clear() {
       messages.length = 0;

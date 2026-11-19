@@ -7,6 +7,11 @@ const employeeAdapter = require('../../integrations/employee/employee.adapter');
 const organisationAdapter = require('../../integrations/organisation/organisation.adapter');
 const employeeInvitationService = require('./employeeInvitation.service');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUuid(val) {
+  return typeof val === 'string' && UUID_REGEX.test(val);
+}
+
 const {
   computeEffectivePermissions,
   resolveTargetRole,
@@ -27,13 +32,13 @@ async function getOrganisationProfile(organisationId, context = {}) {
     organisationId,
     subscription: subscription
       ? {
-          id: subscription.id,
-          planCode: subscription.planCode,
-          billingCycle: subscription.billingCycle,
-          status: subscription.status,
-          startsAt: subscription.startsAt,
-          expiresAt: subscription.expiresAt
-        }
+        id: subscription.id,
+        planCode: subscription.planCode,
+        billingCycle: subscription.billingCycle,
+        status: subscription.status,
+        startsAt: subscription.startsAt,
+        expiresAt: subscription.expiresAt
+      }
       : null
   };
 }
@@ -53,31 +58,75 @@ async function listOrganisationEmployees(organisationId, query = {}) {
   ]);
 
   const assignmentMap = new Map(assignments.map((a) => [a.employeeId, a]));
-  return externalEmployees.map((emp) => {
+  const seenEmployeeIds = new Set();
+
+  const formatted = externalEmployees.map((emp) => {
+    seenEmployeeIds.add(emp.employeeId);
     const assign = assignmentMap.get(emp.employeeId);
     return {
       ...emp,
       recruitmentAccess: assign
         ? {
-            assignmentId: assign.id,
-            isActive: assign.isActive,
-            roleId: assign.roleId,
-            roleCode: assign.role?.code,
-            roleName: assign.role?.name,
-            customPermissions: assign.customPermissions || [],
-            revokedPermissions: assign.revokedPermissions || [],
-            effectivePermissions: computeEffectivePermissions(assign),
-            deactivatedAt: assign.deactivatedAt,
-            invitationStatus: assign.invitationStatus || 'EMPLOYEE_CREATED',
-            invitationSentAt: assign.invitationSentAt || null,
-            invitationDeliveryStatus: assign.invitationDeliveryStatus || 'PENDING',
-            invitationError: assign.invitationError || null,
-            invitationResendCount: assign.invitationResendCount || 0,
-            accountActivatedAt: assign.accountActivatedAt || null
-          }
+          assignmentId: assign.id,
+          isActive: assign.isActive,
+          roleId: assign.roleId,
+          roleCode: assign.role?.code,
+          roleName: assign.role?.name,
+          customPermissions: assign.customPermissions || [],
+          revokedPermissions: assign.revokedPermissions || [],
+          effectivePermissions: computeEffectivePermissions(assign),
+          deactivatedAt: assign.deactivatedAt,
+          invitationStatus: assign.invitationStatus || 'EMPLOYEE_CREATED',
+          invitationSentAt: assign.invitationSentAt || null,
+          invitationDeliveryStatus: assign.invitationDeliveryStatus || 'PENDING',
+          invitationError: assign.invitationError || null,
+          invitationResendCount: assign.invitationResendCount || 0,
+          accountActivatedAt: assign.accountActivatedAt || null
+        }
         : null
     };
   });
+
+  // Reconcile assignments that were not returned by externalEmployees (e.g. created prior to a restart)
+  for (const assign of assignments) {
+    if (!seenEmployeeIds.has(assign.employeeId)) {
+      seenEmployeeIds.add(assign.employeeId);
+      formatted.push({
+        employeeId: assign.employeeId,
+        id: assign.employeeId,
+        authUserId: assign.authUserId,
+        organisationId,
+        employeeCode: `EMP-${assign.employeeId.slice(0, 6).toUpperCase()}`,
+        fullName: 'Team Member',
+        firstName: 'Team',
+        lastName: 'Member',
+        email: '',
+        department: 'People & Talent',
+        designation: assign.role?.name || 'Recruiter',
+        status: assign.invitationStatus === 'ACCOUNT_ACTIVATED' ? 'ACTIVE' : 'INVITED',
+        isActive: assign.isActive,
+        recruitmentAccess: {
+          assignmentId: assign.id,
+          isActive: assign.isActive,
+          roleId: assign.roleId,
+          roleCode: assign.role?.code,
+          roleName: assign.role?.name,
+          customPermissions: assign.customPermissions || [],
+          revokedPermissions: assign.revokedPermissions || [],
+          effectivePermissions: computeEffectivePermissions(assign),
+          deactivatedAt: assign.deactivatedAt,
+          invitationStatus: assign.invitationStatus || 'EMPLOYEE_CREATED',
+          invitationSentAt: assign.invitationSentAt || null,
+          invitationDeliveryStatus: assign.invitationDeliveryStatus || 'PENDING',
+          invitationError: assign.invitationError || null,
+          invitationResendCount: assign.invitationResendCount || 0,
+          accountActivatedAt: assign.accountActivatedAt || null
+        }
+      });
+    }
+  }
+
+  return formatted;
 }
 
 async function assignEmployeeRole(organisationId, employeeId, input, context = {}) {
@@ -93,6 +142,8 @@ async function assignEmployeeRole(organisationId, employeeId, input, context = {
   const role = await resolveTargetRole(organisationId, { roleId: input.roleId, roleCode: input.roleCode });
   const existing = await organisationRepo.findEmployeeAssignment(organisationId, employeeId);
 
+  const safeActorUserId = isValidUuid(context.actorUserId) ? context.actorUserId : null;
+
   const assignment = await withTransaction(async (tx) => {
     const upserted = await organisationRepo.upsertEmployeeAssignment(
       organisationId,
@@ -102,7 +153,7 @@ async function assignEmployeeRole(organisationId, employeeId, input, context = {
           authUserId: employee.authUserId || null,
           roleId: role.id,
           isActive: true,
-          assignedBy: context.actorUserId || null
+          assignedBy: safeActorUserId
         },
         update: {
           ...(employee.authUserId && !existing?.authUserId ? { authUserId: employee.authUserId } : {}),
@@ -218,7 +269,7 @@ async function setEmployeeRecruitmentAccess(organisationId, employeeId, isActive
       employeeId,
       {
         isActive,
-        deactivatedBy: isActive ? null : context.actorUserId || null,
+        deactivatedBy: isActive ? null : (isValidUuid(context.actorUserId) ? context.actorUserId : null),
         deactivatedAt: isActive ? null : new Date()
       },
       tx
@@ -243,10 +294,67 @@ async function setEmployeeRecruitmentAccess(organisationId, employeeId, isActive
     return record;
   });
 
+  if (employeeAdapter.updateStandaloneEmployeeStatus) {
+    employeeAdapter.updateStandaloneEmployeeStatus(organisationId, employeeId, isActive ? 'ACTIVE' : 'INACTIVE');
+  }
+
   return {
     employeeId,
     isActive: updated.isActive,
     deactivatedAt: updated.deactivatedAt
+  };
+}
+
+async function deleteOrganisationEmployee(organisationId, employeeId, context = {}) {
+  const existing = await organisationRepo.findEmployeeAssignment(organisationId, employeeId);
+  const employee = await employeeAdapter.getEmployeeById(organisationId, employeeId, context);
+
+  if (!existing && !employee) {
+    throw new NotFoundError('Employee not found in organisation');
+  }
+
+  // Guard: Cannot delete self
+  if (employeeId === context.actorEmployeeId) {
+    throw new BadRequestError('You cannot delete your own organisation admin account');
+  }
+
+  // Remove recruitment role assignment in DB
+  await withTransaction(async (tx) => {
+    if (existing) {
+      await organisationRepo.deleteEmployeeAssignment(organisationId, employeeId, tx);
+    }
+
+    await auditService.recordAudit(
+      {
+        organisationId,
+        actorUserId: context.actorUserId,
+        actorEmployeeId: context.actorEmployeeId,
+        actorRole: context.actorRole,
+        entityType: 'EMPLOYEE_ACCESS',
+        entityId: employeeId,
+        action: 'EMPLOYEE_ACCESS_DELETED',
+        requestId: context.requestId,
+        beforeState: {
+          employeeId,
+          roleId: existing?.roleId,
+          roleCode: existing?.role?.code,
+          isActive: existing?.isActive
+        },
+        afterState: null
+      },
+      tx
+    );
+  });
+
+  // Remove from standalone store if in standalone mode
+  if (employeeAdapter.deleteStandaloneEmployee) {
+    await employeeAdapter.deleteStandaloneEmployee(organisationId, employeeId);
+  }
+
+  return {
+    success: true,
+    message: 'Employee deleted successfully',
+    employeeId
   };
 }
 
@@ -276,6 +384,7 @@ module.exports = {
   assignEmployeeRole,
   updateEmployeePermissions,
   setEmployeeRecruitmentAccess,
+  deleteOrganisationEmployee,
   getEmployeeActivity,
   // Delegated employee invitation and onboarding functions
   computeEffectivePermissions,

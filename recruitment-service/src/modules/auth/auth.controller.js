@@ -198,6 +198,38 @@ const changeCandidatePassword = asyncHandler(async (req, res) => {
   });
 });
 
+const activateCandidate = asyncHandler(async (req, res) => {
+  const result = await candidateIdentityService.activateCandidateAccount({
+    token: req.body.token,
+    password: req.body.password,
+    confirmPassword: req.body.confirmPassword,
+    ...requestMeta(req)
+  });
+  return sendSuccess(res, {
+    message: result.message,
+    data: result
+  });
+});
+
+const inspectCandidateActivation = asyncHandler(async (req, res) => {
+  const result = await candidateIdentityService.inspectCandidateActivationToken(req.query.token);
+  return sendSuccess(res, {
+    message: 'Activation token is valid',
+    data: result
+  });
+});
+
+const resendCandidateActivation = asyncHandler(async (req, res) => {
+  const result = await candidateIdentityService.resendCandidateActivation({
+    email: req.body.email,
+    ...requestMeta(req)
+  });
+  return sendSuccess(res, {
+    message: result.message,
+    data: result
+  });
+});
+
 const getMe = asyncHandler(async (req, res) => {
   let resolvedRole = req.auth.userType;
   let permissions = [];
@@ -252,5 +284,8 @@ module.exports = {
   forgotCandidatePassword,
   resetCandidatePassword,
   changeCandidatePassword,
+  activateCandidate,
+  inspectCandidateActivation,
+  resendCandidateActivation,
   getMe
 };

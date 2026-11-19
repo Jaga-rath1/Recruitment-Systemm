@@ -164,8 +164,31 @@ export function ResendInvitationModal({ emp, onClose, onConfirm, loading }) {
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
           <Button variant="primary" onClick={onConfirm} loading={loading}>Resend Invitation Email</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function DeleteEmployeeModal({ emp, onClose, onConfirm, loading }) {
+  if (!emp) return null;
+  return (
+    <Modal open={!!emp} onClose={onClose} title="Delete Team Member">
+      <div className="space-y-4 text-xs">
+        <p className="text-slate-700 leading-relaxed">
+          Are you sure you want to permanently delete <strong>{emp.fullName}</strong> ({emp.email || emp.designation})?
+        </p>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-950 space-y-1">
+          <p className="font-semibold text-red-800">Permanent Action:</p>
+          <p className="text-[11px] text-red-700">
+            This will permanently revoke recruitment portal access, remove role assignments, and delete this employee from the team roster. This action cannot be undone.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button variant="danger" onClick={onConfirm} loading={loading}>Delete Team Member</Button>
         </div>
       </div>
     </Modal>

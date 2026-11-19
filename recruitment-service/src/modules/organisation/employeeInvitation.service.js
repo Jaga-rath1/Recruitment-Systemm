@@ -93,6 +93,9 @@ async function addAndInviteEmployee(organisationId, input, context = {}) {
     employeeAdapter.updateStandaloneEmployeeAuthId(organisationId, employee.employeeId, authUserId, 'INVITED');
   }
 
+  const isValidUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+  const safeAssignedBy = isValidUuid(context.actorUserId) ? context.actorUserId : null;
+
   const assignment = await withTransaction(async (tx) => {
     const upserted = await organisationRepo.upsertEmployeeAssignment(
       organisationId,
@@ -104,7 +107,7 @@ async function addAndInviteEmployee(organisationId, input, context = {}) {
           customPermissions: input.customPermissions || [],
           revokedPermissions: input.revokedPermissions || [],
           isActive: true,
-          assignedBy: context.actorUserId || null,
+          assignedBy: safeAssignedBy,
           invitationStatus: shouldSendInvite ? 'INVITATION_PENDING' : 'ACCOUNT_ACTIVATED',
           invitationTokenHash: shouldSendInvite ? tokenHash : null,
           invitationExpiresAt: shouldSendInvite ? expiresAt : null,
@@ -155,7 +158,7 @@ async function addAndInviteEmployee(organisationId, input, context = {}) {
 
   if (shouldSendInvite) {
     try {
-      await notificationAdapter.dispatchNotification({
+      const notifRes = await notificationAdapter.dispatchNotification({
         eventType: 'EMPLOYEE_INVITATION',
         organisationId,
         recipientEmail: employee.email,
@@ -173,13 +176,14 @@ async function addAndInviteEmployee(organisationId, input, context = {}) {
         }
       });
 
+      const isDelivered = notifRes?.delivered === true || notifRes?.emailSent === true;
       await organisationRepo.updateEmployeeAssignment(
         organisationId,
         employee.employeeId,
         {
           invitationStatus: 'INVITATION_SENT',
           invitationSentAt: new Date(),
-          invitationDeliveryStatus: 'ACCEPTED'
+          invitationDeliveryStatus: isDelivered ? 'DELIVERED' : (notifRes?.deliveryStatus || 'ACCEPTED')
         }
       );
     } catch (notifErr) {
@@ -264,7 +268,7 @@ async function resendEmployeeInvitation(organisationId, employeeId, context = {}
   });
 
   try {
-    await notificationAdapter.dispatchNotification({
+    const notifRes = await notificationAdapter.dispatchNotification({
       eventType: 'EMPLOYEE_INVITATION',
       organisationId,
       recipientEmail: employee.email,
@@ -282,13 +286,14 @@ async function resendEmployeeInvitation(organisationId, employeeId, context = {}
       }
     });
 
+    const isDelivered = notifRes?.delivered === true || notifRes?.emailSent === true;
     await organisationRepo.updateEmployeeAssignment(
       organisationId,
       employeeId,
       {
         invitationStatus: 'INVITATION_SENT',
         invitationSentAt: new Date(),
-        invitationDeliveryStatus: 'ACCEPTED'
+        invitationDeliveryStatus: isDelivered ? 'DELIVERED' : (notifRes?.deliveryStatus || 'ACCEPTED')
       }
     );
   } catch (err) {
@@ -393,16 +398,24 @@ async function activateEmployeeAccount({ token, password }, context = {}) {
     throw new NotFoundError('Associated employee record not found');
   }
 
-  // Set credentials on auth provider
-  await authAdapter.activateEmployeeAccountCredentials({
+  const roleCode = assignment.role?.code || 'RECRUITER';
+
+  // Set credentials on auth provider (fails closed in live mode so activation never completes with unset password)
+  const credResult = await authAdapter.activateEmployeeAccountCredentials({
     authUserId: assignment.authUserId,
+    organisationId: assignment.organisationId,
     email: employee.email,
+    fullName: employee.fullName,
+    roleCode,
     password,
     requestId: context.requestId
   });
 
+  const resolvedAuthUserId = credResult?.userId || assignment.authUserId || null;
+
   // Transition employee role assignment to activated state
   await assignment.update({
+    authUserId: resolvedAuthUserId,
     invitationStatus: 'ACCOUNT_ACTIVATED',
     accountActivatedAt: new Date(),
     invitationTokenHash: null, // Single-use! Invalidate token immediately
@@ -410,13 +423,13 @@ async function activateEmployeeAccount({ token, password }, context = {}) {
   });
 
   // Activate employee in employee adapter
-  employeeAdapter.updateStandaloneEmployeeAuthId(assignment.organisationId, assignment.employeeId, assignment.authUserId, 'ACTIVE');
+  employeeAdapter.updateStandaloneEmployeeAuthId(assignment.organisationId, assignment.employeeId, resolvedAuthUserId, 'ACTIVE');
 
   await auditService.recordAudit({
     organisationId: assignment.organisationId,
-    actorUserId: assignment.authUserId || null,
+    actorUserId: resolvedAuthUserId,
     actorEmployeeId: assignment.employeeId,
-    actorRole: assignment.role?.code || 'EMPLOYEE',
+    actorRole: roleCode,
     entityType: 'EMPLOYEE_ACCESS',
     entityId: assignment.employeeId,
     action: 'EMPLOYEE_ACCOUNT_ACTIVATED',
@@ -424,7 +437,6 @@ async function activateEmployeeAccount({ token, password }, context = {}) {
     afterState: { invitationStatus: 'ACCOUNT_ACTIVATED', activatedAt: new Date().toISOString() }
   });
 
-  const roleCode = assignment.role?.code || 'RECRUITER';
   const loginUrl = resolveLoginPortalUrl(roleCode);
 
   return {

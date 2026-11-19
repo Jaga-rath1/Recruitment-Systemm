@@ -5,6 +5,7 @@ const { getModels, withTransaction } = require('../../config/database');
 const { BadRequestError, NotFoundError } = require('../../utils/AppError');
 const auditService = require('../audit/audit.service');
 const organisationAdapter = require('../../integrations/organisation/organisation.adapter');
+const platformAdapter = require('../../integrations/platform/platform.adapter');
 const { findSubscriptionByOrgOrSubId } = require('./platformAdminOrganisation.helpers');
 
 /**
@@ -177,6 +178,20 @@ async function cancelOrganisationSubscription(id, input = {}, context = {}) {
       tx
     );
   });
+
+  // Sync subscription cancellation to Platform Service in live mode (non-blocking for committed local transaction)
+  if (updatedSubRecord?.organisationId) {
+    try {
+      await platformAdapter.cancelOrganisationSubscription(updatedSubRecord.organisationId, {
+        requestId: context.requestId
+      });
+    } catch (platErr) {
+      logger.warn(
+        { err: platErr.message, orgId: updatedSubRecord.organisationId, requestId: context.requestId },
+        'Platform Service subscription cancellation sync warning'
+      );
+    }
+  }
 
   return {
     success: true,

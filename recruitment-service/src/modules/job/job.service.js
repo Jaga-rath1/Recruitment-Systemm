@@ -420,6 +420,42 @@ async function getOrganisationJob(organisationId, jobId) {
   return job;
 }
 
+async function resolvePublicOrganisationNameMap(organisationIds = []) {
+  const uniqueOrgIds = Array.from(new Set(organisationIds.filter(Boolean)));
+  const nameMap = new Map();
+  if (uniqueOrgIds.length === 0) return nameMap;
+
+  // Load persisted Recruitment subscription names as a zero-failure local fallback
+  const subNameMap = new Map();
+  try {
+    const { Subscription } = getModels();
+    const subs = await Subscription.findAll({
+      where: { organisationId: uniqueOrgIds },
+      attributes: ['organisationId', 'organisationName', 'createdAt'],
+      order: [['createdAt', 'DESC']],
+      raw: true
+    });
+    for (const row of subs) {
+      if (row.organisationId && row.organisationName && !subNameMap.has(row.organisationId)) {
+        subNameMap.set(row.organisationId, row.organisationName);
+      }
+    }
+  } catch (_err) {
+    // Non-fatal fallback lookup
+  }
+
+  await Promise.all(
+    uniqueOrgIds.map(async (orgId) => {
+      const org = await organisationAdapter.getOrganisation(orgId).catch(() => null);
+      const adapterName = org?.name && org.name !== 'NEXNUV Tenant Organisation' ? org.name : null;
+      const resolved = adapterName || subNameMap.get(orgId) || org?.name || 'NEXNUV Partner Organisation';
+      nameMap.set(orgId, resolved);
+    })
+  );
+
+  return nameMap;
+}
+
 async function listPublicCareersJobs(query = {}) {
   const { page, limit, skip } = parsePagination(query);
   const { items, total } = await jobRepo.listPublicPublishedJobs({
@@ -432,14 +468,7 @@ async function listPublicCareersJobs(query = {}) {
     take: limit + 1
   });
 
-  const uniqueOrgIds = Array.from(new Set(items.map((j) => j.organisationId).filter(Boolean)));
-  const orgCache = new Map();
-  await Promise.all(
-    uniqueOrgIds.map(async (orgId) => {
-      const org = await organisationAdapter.getOrganisation(orgId);
-      orgCache.set(orgId, org?.name || 'NEXNUV Partner Organisation');
-    })
-  );
+  const orgCache = await resolvePublicOrganisationNameMap(items.map((j) => j.organisationId));
 
   const enriched = items.map((job) => ({
     id: job.id,
@@ -471,12 +500,12 @@ async function getPublicCareersJobDetail(identifier) {
   if (job.publication?.id) {
     await jobRepo.incrementPublicationViews(job.publication.id);
   }
-  const org = await organisationAdapter.getOrganisation(job.organisationId);
+  const orgCache = await resolvePublicOrganisationNameMap([job.organisationId]);
 
   return {
     id: job.id,
     organisationId: job.organisationId,
-    organisationName: org?.name || 'NEXNUV Partner Organisation',
+    organisationName: orgCache.get(job.organisationId) || 'NEXNUV Partner Organisation',
     slug: job.publication?.slug || job.id,
     title: job.title,
     description: job.description,

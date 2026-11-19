@@ -12,6 +12,9 @@ export const authApi = {
   forgotCandidatePassword: (payload) => httpClient.post('/auth/candidate/forgot-password', payload),
   resetCandidatePassword: (payload) => httpClient.post('/auth/candidate/reset-password', payload),
   changeCandidatePassword: (payload) => httpClient.post('/auth/candidate/change-password', payload),
+  activateCandidate: (payload) => httpClient.post('/auth/candidate/activate', payload),
+  inspectCandidateActivation: (token) => httpClient.get('/auth/candidate/activate/inspect', { params: { token } }),
+  resendCandidateActivation: (payload) => httpClient.post('/auth/candidate/resend-activation', payload),
   me: () => httpClient.get('/auth/me')
 };
 
@@ -56,6 +59,7 @@ export const organisationApi = {
   updatePermissions: (employeeId, payload) => httpClient.patch(`/organisations/employees/${employeeId}/permissions`, payload),
   deactivateAccess: (employeeId) => httpClient.patch(`/organisations/employees/${employeeId}/deactivate`),
   reactivateAccess: (employeeId) => httpClient.patch(`/organisations/employees/${employeeId}/reactivate`),
+  deleteEmployee: (employeeId) => httpClient.delete(`/organisations/employees/${employeeId}`),
   getActivity: (employeeId) => httpClient.get(`/organisations/employees/${employeeId}/activity`),
   resendInvitation: (employeeId) => httpClient.post(`/organisations/employees/${employeeId}/resend-invitation`),
   inspectEmployeeActivation: (token) => httpClient.get('/organisations/employees/activate/inspect', { params: { token } }),

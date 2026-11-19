@@ -633,13 +633,14 @@ async function activateFreeTrial(input, context = {}) {
   const expiresAt = new Date(startsAt.getTime() + trialDurationDays * 24 * 60 * 60 * 1000);
 
   const orgResult = await platformAdapter.provisionOrganisation({
-    name: organisationName,
-    domain: organisationDomain,
+    organisationName,
+    organisationDomain,
     industry,
     companySize,
     adminEmail,
     adminName,
     planCode: 'RECRUITMENT_ADVANCED',
+    billingCycle: 'MONTHLY',
     isTrial: true,
     startsAt,
     trialEndsAt: expiresAt,

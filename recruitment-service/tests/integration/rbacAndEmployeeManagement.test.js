@@ -168,5 +168,25 @@ describe('Employee Management, Roles & Granular Backend RBAC', () => {
       .set('Authorization', `Bearer ${org.adminToken}`);
     expect(activityRes.status).toBe(200);
     expect(activityRes.body.data.counts.jobsCreated).toBe(1);
+
+    // Admin reactivates recruitment access
+    const reactivateRes = await request(app)
+      .patch(`/api/v1/organisations/employees/${recruiterEmp.employeeId}/reactivate`)
+      .set('Authorization', `Bearer ${org.adminToken}`);
+    expect(reactivateRes.status).toBe(200);
+    expect(reactivateRes.body.data.isActive).toBe(true);
+
+    // Admin permanently deletes recruitment employee
+    const deleteRes = await request(app)
+      .delete(`/api/v1/organisations/employees/${recruiterEmp.employeeId}`)
+      .set('Authorization', `Bearer ${org.adminToken}`);
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.message).toBe('Employee deleted successfully');
+
+    // Trying to delete self is rejected
+    const selfDeleteRes = await request(app)
+      .delete(`/api/v1/organisations/employees/${org.adminEmployeeId}`)
+      .set('Authorization', `Bearer ${org.adminToken}`);
+    expect(selfDeleteRes.status).toBe(400);
   });
 });

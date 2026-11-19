@@ -38,10 +38,15 @@ export default function ActivateAccountPage() {
 
   useEffect(() => {
     const raw = searchParams.get('token');
+    const type = searchParams.get('type') || searchParams.get('portal');
+    if (type === 'candidate') {
+      navigate(`/activate-candidate?token=${encodeURIComponent(raw || '')}`, { replace: true });
+      return;
+    }
     if (raw) {
       setActivationToken(raw);
     }
-  }, [searchParams]);
+  }, [searchParams, navigate]);
 
   useEffect(() => {
     if (!activationToken) return;

@@ -618,10 +618,23 @@ async function inviteEmployeeAccount({
 
   const existing = standaloneUsersByEmail.get(normalizedEmail);
   if (existing && existing.organisationId && existing.organisationId !== organisationId) {
-    throw new ConflictError(
-      'Email is already associated with another organisation account',
-      'CROSS_ORG_AUTH_CONFLICT'
-    );
+    let oldOrgStillValid = true;
+    if (isDatabaseInitialized()) {
+      try {
+        const { Subscription } = getModels();
+        const oldSub = await Subscription.findOne({ where: { organisationId: existing.organisationId } });
+        if (!oldSub) {
+          oldOrgStillValid = false;
+        }
+      } catch (_e) {}
+    }
+    if (oldOrgStillValid) {
+      throw new ConflictError(
+        'Email is already associated with another organisation account',
+        'CROSS_ORG_AUTH_CONFLICT'
+      );
+    }
+    existing.organisationId = organisationId;
   }
   if (existing && existing.isActive === false) {
     throw new ForbiddenError('Employee account is inactive', 'EMPLOYEE_INACTIVE');
@@ -651,8 +664,161 @@ async function inviteEmployeeAccount({
   };
 }
 
-async function activateEmployeeAccountCredentials({ authUserId, email, password, requestId = null }) {
+async function setLiveOrgUserPasswordViaProvisionFlow({
+  email,
+  organisationId,
+  authUserId = null,
+  fullName = 'Team Member',
+  roleCode = 'RECRUITER',
+  password,
+  requestId = null
+}) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw new BadRequestError('Email address is required to update account credentials');
+  }
+  if (!organisationId) {
+    throw new BadRequestError('Organisation context is required to update live Auth Service credentials');
+  }
+  if (!password) {
+    throw new BadRequestError('Password is required to update account credentials');
+  }
+
+  const liveTimeoutMs = Math.max(env.services.requestTimeoutMs || 5000, 12000);
+  let sharedRole = mapRoleCodeToSharedAuthRole(roleCode);
+
+  if (authUserId) {
+    try {
+      const stateRes = await requestJson({
+        serviceName: 'Auth Service',
+        baseUrl: env.services.authUrl,
+        method: 'GET',
+        path: `/api/v1/auth/internal/accounts/${encodeURIComponent(authUserId)}`,
+        requestId,
+        timeoutMs: liveTimeoutMs
+      });
+      const state = stateRes.data?.data;
+      if (state) {
+        if (state.organizationId && state.organizationId !== organisationId) {
+          throw new ConflictError(
+            'Account belongs to a different organisation in Auth Service',
+            'CROSS_ORG_AUTH_CONFLICT'
+          );
+        }
+        if (state.role && String(state.role).toLowerCase() !== 'candidate') {
+          sharedRole = String(state.role).toLowerCase();
+        }
+      }
+    } catch (stateErr) {
+      if (stateErr instanceof ConflictError) throw stateErr;
+      // If account lookup returns 404 or transient error, provision-agent enforces org isolation safely
+    }
+  }
+
+  let provRes;
+  try {
+    provRes = await requestJson({
+      serviceName: 'Auth Service',
+      baseUrl: env.services.authUrl,
+      method: 'POST',
+      path: '/api/v1/auth/internal/provision-agent',
+      organisationId,
+      requestId,
+      timeoutMs: liveTimeoutMs,
+      body: {
+        email: normalizedEmail,
+        name: fullName || normalizedEmail,
+        role: sharedRole,
+        organizationId: organisationId,
+        forceResetPassword: true
+      }
+    });
+  } catch (err) {
+    if (err.statusCode === 409) {
+      throw new ConflictError(
+        'Email is already registered under a different organisation in Auth Service',
+        'CROSS_ORG_AUTH_CONFLICT'
+      );
+    }
+    throw err;
+  }
+
+  const provData = provRes.data?.data || provRes.data;
+  const provisionedUser = provData?.user;
+  const tempPassword = provData?.tempPassword;
+
+  if (!provisionedUser || !tempPassword) {
+    throw new ServiceUnavailableError(
+      'Auth Service did not return temporary credentials required to complete password update',
+      'AUTH_PASSWORD_UPDATE_FAILED'
+    );
+  }
+
+  const tempLoginRes = await requestJson({
+    serviceName: 'Auth Service',
+    baseUrl: env.services.authUrl,
+    method: 'POST',
+    path: '/api/v1/auth/login',
+    requestId,
+    timeoutMs: liveTimeoutMs,
+    body: { email: normalizedEmail, password: tempPassword }
+  });
+
+  const tempToken = tempLoginRes.data?.token;
+  if (!tempToken) {
+    throw new ServiceUnavailableError(
+      'Auth Service temporary login failed during password setup',
+      'AUTH_PASSWORD_UPDATE_FAILED'
+    );
+  }
+
+  const setupRes = await requestJson({
+    serviceName: 'Auth Service',
+    baseUrl: env.services.authUrl,
+    method: 'POST',
+    path: '/api/v1/auth/setup-password',
+    authorization: `Bearer ${tempToken}`,
+    requestId,
+    timeoutMs: liveTimeoutMs,
+    body: {
+      temporaryPassword: tempPassword,
+      newPassword: password,
+      confirmPassword: password
+    }
+  });
+
+  const finalUser = setupRes.data?.user || provisionedUser;
+  return {
+    userId: finalUser.id || provisionedUser.id || authUserId,
+    email: normalizedEmail,
+    token: setupRes.data?.token || null,
+    sharedUser: normalizeSharedUser(finalUser)
+  };
+}
+
+async function activateEmployeeAccountCredentials({
+  authUserId,
+  email,
+  password,
+  organisationId = null,
+  fullName = 'Team Member',
+  roleCode = 'RECRUITER',
+  requestId = null
+}) {
   const normalizedEmail = email ? email.trim().toLowerCase() : null;
+
+  if (env.integrationMode === 'live') {
+    return setLiveOrgUserPasswordViaProvisionFlow({
+      email: normalizedEmail,
+      organisationId,
+      authUserId,
+      fullName,
+      roleCode,
+      password,
+      requestId
+    });
+  }
+
   let record = null;
   if (normalizedEmail && standaloneUsersByEmail.has(normalizedEmail)) {
     record = standaloneUsersByEmail.get(normalizedEmail);
@@ -668,22 +834,6 @@ async function activateEmployeeAccountCredentials({ authUserId, email, password,
     standaloneUsersById.set(record.userId, record);
     saveStandaloneUsersToDisk();
     return { userId: record.userId, email: record.email };
-  }
-
-  if (env.integrationMode === 'live' && authUserId) {
-    try {
-      await requestJson({
-        serviceName: 'Auth Service',
-        baseUrl: env.services.authUrl,
-        method: 'PATCH',
-        path: `/api/v1/auth/users/${encodeURIComponent(authUserId)}/password`,
-        requestId,
-        body: { password }
-      });
-      await setAuthUserStatus(authUserId, 'ACTIVE', { requestId });
-    } catch (err) {
-      logger.warn({ authUserId, err: err.message }, 'Failed to set employee password on live Auth Service');
-    }
   }
 
   return { userId: authUserId, email: normalizedEmail };
@@ -887,16 +1037,17 @@ async function updateOrgUserPassword({
 }) {
   const normalizedEmail = email.trim().toLowerCase();
 
-  if (env.integrationMode === 'live' && authUserId) {
-    await requestJson({
-      serviceName: 'Auth Service',
-      baseUrl: env.services.authUrl,
-      method: 'PATCH',
-      path: `/api/v1/auth/users/${encodeURIComponent(authUserId)}/password`,
-      requestId,
-      body: { password }
+  if (env.integrationMode === 'live') {
+    const primaryRole = Array.isArray(roles) && roles.length > 0 ? roles[0] : 'ORGANISATION_ADMIN';
+    return setLiveOrgUserPasswordViaProvisionFlow({
+      email: normalizedEmail,
+      organisationId,
+      authUserId,
+      fullName,
+      roleCode: primaryRole,
+      password,
+      requestId
     });
-    return { userId: authUserId, email: normalizedEmail };
   }
 
   const existing =

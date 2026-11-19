@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { UserPlus, Shield, Activity, UserX, UserCheck, RefreshCw } from 'lucide-react';
+import { UserPlus, Shield, Activity, UserX, UserCheck, RefreshCw, Trash2 } from 'lucide-react';
 import { organisationApi, roleApi } from '../../api';
 import DataTable from '../../components/common/DataTable';
 import SearchFilterBar from '../../components/common/SearchFilterBar';
@@ -14,7 +14,8 @@ import {
   AssignRoleModal,
   PermissionsModal,
   ActivityModal,
-  ResendInvitationModal
+  ResendInvitationModal,
+  DeleteEmployeeModal
 } from './EmployeeModals';
 
 export default function EmployeesPage() {
@@ -44,6 +45,7 @@ export default function EmployeesPage() {
   const [customPerms, setCustomPerms] = useState([]);
   const [activityModal, setActivityModal] = useState(null);
   const [resendModalEmp, setResendModalEmp] = useState(null);
+  const [deleteModalEmp, setDeleteModalEmp] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -140,6 +142,25 @@ export default function EmployeesPage() {
       loadData();
     } catch (err) {
       addToast({ title: 'Resend Failed', message: err.message, variant: 'error' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteEmployee = async () => {
+    if (!deleteModalEmp) return;
+    setSubmitting(true);
+    try {
+      await organisationApi.deleteEmployee(deleteModalEmp.employeeId);
+      addToast({
+        title: 'Employee Deleted',
+        message: `${deleteModalEmp.fullName} has been removed from the organisation.`,
+        variant: 'success'
+      });
+      setDeleteModalEmp(null);
+      loadData();
+    } catch (err) {
+      addToast({ title: 'Delete Failed', message: err.message, variant: 'error' });
     } finally {
       setSubmitting(false);
     }
@@ -264,6 +285,16 @@ export default function EmployeesPage() {
                 >
                   {row.recruitmentAccess?.isActive ? 'Deactivate' : 'Activate'}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                  icon={Trash2}
+                  onClick={() => setDeleteModalEmp(row)}
+                  title="Delete employee permanently"
+                >
+                  Delete
+                </Button>
               </>
             )}
             <Button size="sm" variant="ghost" icon={Activity} onClick={() => openActivity(row)}>
@@ -344,6 +375,13 @@ export default function EmployeesPage() {
         emp={resendModalEmp}
         onClose={() => setResendModalEmp(null)}
         onConfirm={handleResendInvitation}
+        loading={submitting}
+      />
+
+      <DeleteEmployeeModal
+        emp={deleteModalEmp}
+        onClose={() => setDeleteModalEmp(null)}
+        onConfirm={handleDeleteEmployee}
         loading={submitting}
       />
     </PageTransition>

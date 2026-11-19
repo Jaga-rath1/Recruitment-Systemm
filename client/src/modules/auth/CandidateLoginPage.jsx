@@ -229,7 +229,7 @@ export default function CandidateLoginPage() {
             required
             value={loginForm.email}
             onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
-            placeholder="admin@company.com"
+            placeholder="candidate@example.com"
           />
           <InputField
             label="Password"
@@ -243,6 +243,9 @@ export default function CandidateLoginPage() {
           <div className="flex items-center justify-between text-xs">
             <Link to="/forgot-password" className="text-brand-600 hover:text-brand-700 hover:underline">
               Forgot password?
+            </Link>
+            <Link to="/activate-candidate" className="text-slate-500 hover:text-brand-600 hover:underline">
+              Activate account
             </Link>
           </div>
 

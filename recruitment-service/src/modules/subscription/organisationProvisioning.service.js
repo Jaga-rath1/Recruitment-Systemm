@@ -24,6 +24,9 @@ async function provisionTenantOrganisation(sub, context = {}) {
         adminName: sub.adminName,
         adminEmail: sub.adminEmail,
         planCode: sub.planCode,
+        billingCycle: sub.billingCycle,
+        startsAt: sub.startsAt,
+        endsAt: sub.expiresAt,
         isTrial: false,
         requestId: context.requestId
       });

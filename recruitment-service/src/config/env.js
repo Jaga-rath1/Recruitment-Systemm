@@ -306,7 +306,7 @@ const env = {
       process.env.INTERNAL_SERVICE_TOKEN ||
       process.env.GATEWAY_SHARED_SECRET ||
       'nexnuv-internal-service-token-dev',
-    requestTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 5000),
+    requestTimeoutMs: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS || 10000),
     getRetryAttempts: Number(process.env.EXTERNAL_GET_RETRY_ATTEMPTS || 2),
     platformRequireRecruitmentFeature: process.env.PLATFORM_REQUIRE_RECRUITMENT_FEATURE === 'true'
   },

@@ -68,6 +68,16 @@ const reactivateAccess = asyncHandler(async (req, res) => {
   return sendSuccess(res, { message: 'Recruitment access reactivated', data });
 });
 
+const deleteEmployee = asyncHandler(async (req, res) => {
+  const data = await organisationService.deleteOrganisationEmployee(req.tenantId, req.params.employeeId, {
+    actorUserId: req.auth.userId,
+    actorEmployeeId: req.auth.employeeId,
+    actorRole: req.auth.activeRoleCode,
+    requestId: req.requestId
+  });
+  return sendSuccess(res, { message: 'Employee deleted successfully', data });
+});
+
 const getActivity = asyncHandler(async (req, res) => {
   const data = await organisationService.getEmployeeActivity(req.tenantId, req.params.employeeId);
   return sendSuccess(res, { message: 'Employee recruitment activity fetched', data });
@@ -105,6 +115,7 @@ module.exports = {
   updatePermissions,
   deactivateAccess,
   reactivateAccess,
+  deleteEmployee,
   getActivity,
   resendInvitation,
   inspectActivation,

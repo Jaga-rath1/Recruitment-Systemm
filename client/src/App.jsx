@@ -25,6 +25,7 @@ const CandidateVerifyEmailPage = lazy(() => import('./modules/marketing/Candidat
 const ForgotPasswordPage = lazy(() => import('./modules/marketing/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./modules/marketing/ResetPasswordPage'));
 const ActivateAccountPage = lazy(() => import('./modules/marketing/ActivateAccountPage'));
+const CandidateActivationPage = lazy(() => import('./modules/auth/CandidateActivationPage'));
 const EmployeeActivationPage = lazy(() => import('./modules/auth/EmployeeActivationPage'));
 const CareersPage = lazy(() => import('./modules/marketing/CareersPage'));
 const JobDetailApplyPage = lazy(() => import('./modules/marketing/JobDetailApplyPage'));
@@ -86,6 +87,7 @@ export function AppRoutes() {
           <Route path="/org-login" element={<OrganisationAdminLoginPage />} />
           <Route path="/recruiter-login" element={<RecruiterLoginPage />} />
           <Route path="/activate-employee" element={<EmployeeActivationPage />} />
+          <Route path="/activate-candidate" element={<CandidateActivationPage />} />
           <Route path="/verify-email" element={<CandidateVerifyEmailPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />

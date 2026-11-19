@@ -98,6 +98,7 @@ async function runStage({ name, concurrency, iterationsPerUser, baseUrl, ctx }) 
   let timeoutCount = 0;
 
   const memStart = process.memoryUsage();
+  const cpuStart = process.cpuUsage();
   const stageStart = performance.now();
 
   const endpoints = [
@@ -117,7 +118,7 @@ async function runStage({ name, concurrency, iterationsPerUser, baseUrl, ctx }) 
     },
     {
       kind: 'business',
-      url: `${baseUrl}/api/v1/jobs/platform-admin/jobs?page=1&limit=10`,
+      url: `${baseUrl}/api/v1/subscriptions/platform-admin/organisations?page=1&limit=10`,
       headers: { Authorization: `Bearer ${ctx.platformToken}` }
     }
   ];
@@ -157,6 +158,7 @@ async function runStage({ name, concurrency, iterationsPerUser, baseUrl, ctx }) 
 
   const durationSec = Math.max(0.001, (performance.now() - stageStart) / 1000);
   const memEnd = process.memoryUsage();
+  const cpuDiff = process.cpuUsage(cpuStart);
   latencies.sort((a, b) => a - b);
   readLatencies.sort((a, b) => a - b);
   businessLatencies.sort((a, b) => a - b);
@@ -173,8 +175,11 @@ async function runStage({ name, concurrency, iterationsPerUser, baseUrl, ctx }) 
     p50Ms: percentile(latencies, 50),
     p95Ms: percentile(latencies, 95),
     p99Ms: percentile(latencies, 99),
+    maxLatencyMs: Math.round((latencies[latencies.length - 1] || 0) * 100) / 100,
     readP95Ms: percentile(readLatencies, 95),
     businessP95Ms: percentile(businessLatencies, 95),
+    cpuUserMs: Math.round(cpuDiff.user / 1000),
+    cpuSystemMs: Math.round(cpuDiff.system / 1000),
     heapUsedStartMb: Math.round((memStart.heapUsed / 1048576) * 100) / 100,
     heapUsedEndMb: Math.round((memEnd.heapUsed / 1048576) * 100) / 100,
     rssEndMb: Math.round((memEnd.rss / 1048576) * 100) / 100

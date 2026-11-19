@@ -169,8 +169,18 @@ async function sendViaSmtp(emailCfg, payload) {
       messageId: info?.messageId || null
     };
   } catch (_err) {
+    logger.error(
+      {
+        err: _err.message,
+        code: _err.code,
+        command: _err.command,
+        response: _err.response,
+        host: emailCfg.smtp.host
+      },
+      '[Email Adapter] SMTP sendMail failed'
+    );
     throw new ServiceUnavailableError(
-      'SMTP transactional email delivery failed',
+      `SMTP transactional email delivery failed: ${_err.message}`,
       'EMAIL_DELIVERY_UNAVAILABLE'
     );
   }

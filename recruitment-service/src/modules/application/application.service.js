@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const { withTransaction, getModels } = require('../../config/database');
+const env = require('../../config/env');
+const logger = require('../../config/logger');
 const {
   BadRequestError,
   ConflictError,
@@ -8,6 +10,7 @@ const {
 const { parsePagination, buildPaginationMeta } = require('../../utils/pagination');
 const applicationRepo = require('./application.repository');
 const candidateRepo = require('../candidate/candidate.repository');
+const candidateIdentityService = require('../candidate/candidateIdentity.service');
 const auditService = require('../audit/audit.service');
 const storageAdapter = require('../../integrations/storage/storage.adapter');
 const notificationAdapter = require('../../integrations/notification/notification.adapter');
@@ -88,6 +91,16 @@ async function submitPublicApplication(jobId, input, file, context = {}) {
     }
   }
 
+  // Provision or link CandidateAccount for the applicant's email
+  const provisionRes = await candidateIdentityService.provisionCandidateAccountForApplication({
+    fullName: input.fullName.trim(),
+    email: normalizedEmail,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
+  const boundAuthUserId = context.authUserId || null;
+
   const storedResume = await storageAdapter.saveFile({
     organisationId,
     folder: 'resumes',
@@ -102,8 +115,8 @@ async function submitPublicApplication(jobId, input, file, context = {}) {
       const candidate = await candidateRepo.upsertCandidateForOrg(
         organisationId,
         {
-          authUserId: context.authUserId || null,
-          verifiedEmailMatch: Boolean(context.authUserId),
+          authUserId: boundAuthUserId,
+          verifiedEmailMatch: Boolean(boundAuthUserId),
           fullName: input.fullName.trim(),
           email: normalizedEmail,
           mobileNumber: input.mobileNumber.trim(),
@@ -175,7 +188,7 @@ async function submitPublicApplication(jobId, input, file, context = {}) {
           fromStage: null,
           toStage: 'APPLIED',
           action: 'APPLICATION_SUBMITTED',
-          actorUserId: context.authUserId || null,
+          actorUserId: boundAuthUserId || null,
           actorRole: 'CANDIDATE',
           candidateVisibleNote: `Application submitted for ${job.title}`,
           metadata: { applicationReference }
@@ -186,7 +199,7 @@ async function submitPublicApplication(jobId, input, file, context = {}) {
       await auditService.recordAudit(
         {
           organisationId,
-          actorUserId: context.authUserId || null,
+          actorUserId: boundAuthUserId || null,
           actorRole: 'CANDIDATE',
           entityType: 'APPLICATION',
           entityId: application.id,
@@ -209,19 +222,71 @@ async function submitPublicApplication(jobId, input, file, context = {}) {
     throw err;
   }
 
-  await notificationAdapter.dispatchNotification({
-    eventType: 'APPLICATION_RECEIVED',
-    organisationId,
-    recipientEmail: result.candidate.email,
-    recipientName: result.candidate.fullName,
-    requestId: context.requestId,
-    payload: {
-      applicationId: result.application.id,
-      applicationReference: result.application.applicationReference,
-      jobId: job.id,
-      jobTitle: job.title
+  // Safe notification dispatch: delivery failure must never rollback an already saved application
+  const rawActivationToken = provisionRes?.needsActivation ? provisionRes.rawActivationToken : null;
+  const activationUrl = rawActivationToken
+    ? `${env.clientAppUrl}/activate-candidate?token=${encodeURIComponent(rawActivationToken)}`
+    : null;
+  const loginUrl = `${env.clientAppUrl}/login`;
+  const expiresInHours = provisionRes?.expiresInHours || 48;
+
+  try {
+    await notificationAdapter.dispatchNotification({
+      eventType: 'APPLICATION_RECEIVED',
+      organisationId,
+      recipientEmail: result.candidate.email,
+      recipientName: result.candidate.fullName,
+      requestId: context.requestId,
+      payload: {
+        applicationId: result.application.id,
+        applicationReference: result.application.applicationReference,
+        jobId: job.id,
+        jobTitle: job.title,
+        username: result.candidate.email,
+        email: result.candidate.email,
+        fullName: result.candidate.fullName,
+        needsActivation: Boolean(provisionRes?.needsActivation),
+        activationToken: rawActivationToken,
+        activationUrl,
+        loginUrl,
+        expiresInHours
+      }
+    });
+  } catch (notifErr) {
+    logger.warn(
+      { err: notifErr.message, applicationId: result.application.id, email: result.candidate.email },
+      '[Application Service] Failed to send APPLICATION_RECEIVED notification'
+    );
+  }
+
+  // If candidate account was newly provisioned or is inactive, dispatch candidate account activation email
+  if (provisionRes?.needsActivation && rawActivationToken) {
+    try {
+      await notificationAdapter.dispatchNotification({
+        eventType: 'CANDIDATE_ACCOUNT_ACTIVATION',
+        organisationId: null,
+        recipientEmail: result.candidate.email,
+        recipientName: result.candidate.fullName,
+        requestId: context.requestId,
+        payload: {
+          username: result.candidate.email,
+          email: result.candidate.email,
+          fullName: result.candidate.fullName,
+          activationToken: rawActivationToken,
+          activationUrl,
+          loginUrl,
+          expiresInHours,
+          jobTitle: job.title,
+          applicationReference: result.application.applicationReference
+        }
+      });
+    } catch (actErr) {
+      logger.warn(
+        { err: actErr.message, email: result.candidate.email },
+        '[Application Service] Failed to send CANDIDATE_ACCOUNT_ACTIVATION notification'
+      );
     }
-  });
+  }
 
   return {
     applicationId: result.application.id,
@@ -428,7 +493,11 @@ async function screenApplication(organisationId, applicationId, input, context =
       requestId: context.requestId,
       payload: {
         applicationReference: app.applicationReference,
-        jobTitle: app.job.title
+        jobTitle: app.job.title,
+        username: app.candidate.email,
+        email: app.candidate.email,
+        fullName: app.candidate.fullName,
+        loginUrl: `${env.clientAppUrl}/login`
       }
     });
   } else if (input.decision === 'REJECT') {

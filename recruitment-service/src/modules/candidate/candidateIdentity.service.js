@@ -1,7 +1,10 @@
+const crypto = require('crypto');
 const { Op, Sequelize } = require('sequelize');
 const env = require('../../config/env');
+const logger = require('../../config/logger');
 const { getModels, withTransaction, isDatabaseInitialized } = require('../../config/database');
 const emailAdapter = require('../../integrations/email/email.adapter');
+const notificationAdapter = require('../../integrations/notification/notification.adapter');
 const auditService = require('../audit/audit.service');
 const { normalizeEmail } = require('../../utils/validationHelpers');
 const {
@@ -116,40 +119,65 @@ async function registerCandidate({ fullName, email, password, requestId = null, 
   const createdAccount = await withTransaction(async (tx) => {
     const existing = await findCandidateAccountByEmail(normalizedEmail, { transaction: tx });
     if (existing) {
-      throw new ConflictError(
-        'An account with this email already exists. Please sign in, verify your email, or reset your password.',
-        'EMAIL_ALREADY_REGISTERED'
-      );
-    }
+      const isAutoProvisionedPending = !existing.emailVerified &&
+        typeof existing.passwordHash === 'string' &&
+        existing.passwordHash.startsWith('!UNSET_ACTIVATION_PENDING$');
 
-    let created;
-    try {
-      created = await CandidateAccount.create(
-        {
-          email: normalizedEmail,
-          fullName: cleanedName,
-          passwordHash: hashPassword(password),
-          isActive: true,
-          emailVerified: false,
-          emailVerifiedAt: null,
-          verificationTokenHash: otpHash,
-          verificationExpiresAt: otpExpiresAt,
-          verificationAttempts: 0,
-          verificationLockedUntil: null,
-          verificationSentAt: now,
-          tokenVersion: 1,
-          lastSecurityEventAt: now
-        },
-        { transaction: tx }
-      );
-    } catch (err) {
-      if (err.name === 'SequelizeUniqueConstraintError') {
+      if (!isAutoProvisionedPending) {
         throw new ConflictError(
           'An account with this email already exists. Please sign in, verify your email, or reset your password.',
           'EMAIL_ALREADY_REGISTERED'
         );
       }
-      throw err;
+    }
+
+    let created;
+    if (existing) {
+      await existing.update(
+        {
+          fullName: cleanedName || existing.fullName,
+          passwordHash: hashPassword(password),
+          isActive: true,
+          emailVerified: false,
+          verificationTokenHash: otpHash,
+          verificationExpiresAt: otpExpiresAt,
+          verificationAttempts: 0,
+          verificationLockedUntil: null,
+          verificationSentAt: now,
+          lastSecurityEventAt: now
+        },
+        { transaction: tx }
+      );
+      created = existing;
+    } else {
+      try {
+        created = await CandidateAccount.create(
+          {
+            email: normalizedEmail,
+            fullName: cleanedName,
+            passwordHash: hashPassword(password),
+            isActive: true,
+            emailVerified: false,
+            emailVerifiedAt: null,
+            verificationTokenHash: otpHash,
+            verificationExpiresAt: otpExpiresAt,
+            verificationAttempts: 0,
+            verificationLockedUntil: null,
+            verificationSentAt: now,
+            tokenVersion: 1,
+            lastSecurityEventAt: now
+          },
+          { transaction: tx }
+        );
+      } catch (err) {
+        if (err.name === 'SequelizeUniqueConstraintError') {
+          throw new ConflictError(
+            'An account with this email already exists. Please sign in, verify your email, or reset your password.',
+            'EMAIL_ALREADY_REGISTERED'
+          );
+        }
+        throw err;
+      }
     }
 
     await writeCandidateAudit({
@@ -617,9 +645,34 @@ async function resetCandidatePassword({
 
   const submittedHash = hashCandidateToken(rawToken, 'PASSWORD_RESET');
   const now = new Date();
-  const account = await CandidateAccount.findOne({
+  let account = await CandidateAccount.findOne({
     where: { resetTokenHash: submittedHash }
   });
+
+  if (!account) {
+    const activationHash = hashCandidateToken(rawToken, 'CANDIDATE_ACTIVATION');
+    const activationAccount = await CandidateAccount.findOne({
+      where: { verificationTokenHash: activationHash }
+    });
+    if (activationAccount) {
+      const actRes = await activateCandidateAccount({
+        token: rawToken,
+        password: newPassword,
+        confirmPassword,
+        requestId,
+        ipAddress,
+        userAgent
+      });
+      return {
+        resetCompleted: true,
+        sessionsRevoked: true,
+        requiresLogin: true,
+        loginPath: '/login',
+        email: actRes.email,
+        message: 'Candidate account activated successfully. You may now sign in with your password.'
+      };
+    }
+  }
 
   if (
     !account ||
@@ -788,6 +841,356 @@ async function deactivateCandidateAccount({
   return sanitizeCandidateAccount(account);
 }
 
+/**
+ * Automatically provisions or retrieves a CandidateAccount when applying for a job.
+ * - New candidate: creates CandidateAccount with pending activation, generates single-use activation token.
+ * - Existing candidate (active): returns existing account, needsActivation: false (preserves password).
+ * - Existing candidate (inactive): refreshes activation token, needsActivation: true.
+ */
+async function provisionCandidateAccountForApplication({
+  fullName,
+  email,
+  requestId = null,
+  ipAddress = null,
+  userAgent = null
+}) {
+  ensureDatabaseReady();
+  const { CandidateAccount } = getModels();
+  const normalizedEmail = normalizeEmail(email);
+  const cleanedName = String(fullName || '').trim();
+  const now = new Date();
+  const activationTtlHours = 48;
+  const expiresAt = addMinutes(now, activationTtlHours * 60);
+
+  const existing = await findCandidateAccountByEmail(normalizedEmail);
+  if (existing) {
+    if (existing.emailVerified && existing.isActive) {
+      // Existing activated candidate: NEVER overwrite password or reset token
+      return {
+        isNew: false,
+        account: existing,
+        needsActivation: false,
+        rawActivationToken: null,
+        expiresInHours: activationTtlHours
+      };
+    }
+
+    // Existing inactive candidate: refresh single-use activation token
+    const rawActivationToken = generateResetToken(32);
+    const activationHash = hashCandidateToken(rawActivationToken, 'CANDIDATE_ACTIVATION');
+
+    await CandidateAccount.update(
+      {
+        fullName: cleanedName || existing.fullName,
+        verificationTokenHash: activationHash,
+        verificationExpiresAt: expiresAt,
+        verificationAttempts: 0,
+        verificationSentAt: now,
+        lastSecurityEventAt: now
+      },
+      { where: { id: existing.id } }
+    );
+
+    await writeCandidateAudit({
+      accountId: existing.id,
+      action: 'CANDIDATE_ACTIVATION_TOKEN_REFRESHED',
+      context: { requestId, ipAddress, userAgent },
+      afterState: { verificationExpiresAt: expiresAt.toISOString(), emailVerified: false }
+    });
+
+    const refreshed = await CandidateAccount.findByPk(existing.id);
+    return {
+      isNew: false,
+      account: refreshed,
+      needsActivation: true,
+      rawActivationToken,
+      expiresInHours: activationTtlHours
+    };
+  }
+
+  // New candidate: provision candidate account
+  const rawActivationToken = generateResetToken(32);
+  const activationHash = hashCandidateToken(rawActivationToken, 'CANDIDATE_ACTIVATION');
+  // Secure unguessable placeholder password hash before candidate sets their own password
+  const placeholderHash = '!UNSET_ACTIVATION_PENDING$' + crypto.randomBytes(16).toString('hex');
+
+  let created;
+  try {
+    created = await CandidateAccount.create({
+      email: normalizedEmail,
+      fullName: cleanedName,
+      passwordHash: placeholderHash,
+      isActive: true,
+      emailVerified: false,
+      emailVerifiedAt: null,
+      verificationTokenHash: activationHash,
+      verificationExpiresAt: expiresAt,
+      verificationAttempts: 0,
+      verificationLockedUntil: null,
+      verificationSentAt: now,
+      tokenVersion: 1,
+      lastSecurityEventAt: now
+    });
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      const raced = await findCandidateAccountByEmail(normalizedEmail);
+      if (raced) {
+        return provisionCandidateAccountForApplication({
+          fullName,
+          email,
+          requestId,
+          ipAddress,
+          userAgent
+        });
+      }
+    }
+    throw err;
+  }
+
+  await writeCandidateAudit({
+    accountId: created.id,
+    action: 'CANDIDATE_ACCOUNT_PROVISIONED_FOR_APPLICATION',
+    context: { requestId, ipAddress, userAgent },
+    afterState: { emailVerified: false, verificationExpiresAt: expiresAt.toISOString() }
+  });
+
+  return {
+    isNew: true,
+    account: created,
+    needsActivation: true,
+    rawActivationToken,
+    expiresInHours: activationTtlHours
+  };
+}
+
+/**
+ * Inspects a candidate activation token without invalidating it.
+ */
+async function inspectCandidateActivationToken(rawToken) {
+  ensureDatabaseReady();
+  const { CandidateAccount } = getModels();
+  const token = String(rawToken || '').trim();
+  if (!token || token.length < 16) {
+    throw new BadRequestError('Invalid or missing activation token', null, 'INVALID_ACTIVATION_TOKEN');
+  }
+
+  const tokenHash = hashCandidateToken(token, 'CANDIDATE_ACTIVATION');
+  const now = new Date();
+  const account = await CandidateAccount.findOne({
+    where: { verificationTokenHash: tokenHash }
+  });
+
+  if (
+    !account ||
+    !account.isActive ||
+    !account.verificationExpiresAt ||
+    new Date(account.verificationExpiresAt) <= now ||
+    !timingSafeEqualHex(tokenHash, account.verificationTokenHash)
+  ) {
+    throw new BadRequestError('Activation link has expired or has already been used', null, 'INVALID_ACTIVATION_TOKEN');
+  }
+
+  return {
+    valid: true,
+    email: account.email,
+    fullName: account.fullName,
+    expiresAt: account.verificationExpiresAt
+  };
+}
+
+/**
+ * Completes candidate account activation and password setup.
+ * Single-use token is immediately invalidated.
+ * Password is scrypt-hashed and persisted.
+ * Unlinked Candidate records for this email are bound to account.id.
+ */
+async function activateCandidateAccount({
+  token,
+  password,
+  confirmPassword,
+  requestId = null,
+  ipAddress = null,
+  userAgent = null
+}) {
+  ensureDatabaseReady();
+  const { CandidateAccount, Candidate } = getModels();
+  const rawToken = String(token || '').trim();
+  if (!rawToken || rawToken.length < 16) {
+    throw new BadRequestError('Invalid or expired activation token', null, 'INVALID_ACTIVATION_TOKEN');
+  }
+  if (confirmPassword !== undefined && confirmPassword !== password) {
+    throw new BadRequestError('Password confirmation does not match password', null, 'PASSWORD_MISMATCH');
+  }
+
+  const tokenHash = hashCandidateToken(rawToken, 'CANDIDATE_ACTIVATION');
+  const now = new Date();
+
+  const account = await CandidateAccount.findOne({
+    where: { verificationTokenHash: tokenHash }
+  });
+
+  if (
+    !account ||
+    !account.isActive ||
+    !account.verificationExpiresAt ||
+    new Date(account.verificationExpiresAt) <= now ||
+    !timingSafeEqualHex(tokenHash, account.verificationTokenHash)
+  ) {
+    await writeCandidateAudit({
+      accountId: account?.id || null,
+      action: 'CANDIDATE_ACTIVATION_FAILED',
+      context: { requestId, ipAddress, userAgent },
+      afterState: { reason: !account ? 'TOKEN_NOT_FOUND' : 'TOKEN_EXPIRED_OR_INVALID' }
+    });
+    throw new BadRequestError('Invalid or expired activation token', null, 'INVALID_ACTIVATION_TOKEN');
+  }
+
+  const newHash = hashPassword(password);
+
+  // Single-use token invalidation: atomically clear verificationTokenHash
+  const [affectedRows] = await CandidateAccount.update(
+    {
+      passwordHash: newHash,
+      emailVerified: true,
+      emailVerifiedAt: now,
+      passwordChangedAt: now,
+      verificationTokenHash: null,
+      verificationExpiresAt: null,
+      verificationAttempts: 0,
+      verificationLockedUntil: null,
+      resetTokenHash: null,
+      resetExpiresAt: null,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      tokenVersion: Number(account.tokenVersion || 1) + 1,
+      lastSecurityEventAt: now
+    },
+    {
+      where: {
+        id: account.id,
+        isActive: true,
+        verificationTokenHash: tokenHash,
+        verificationExpiresAt: { [Op.gt]: now }
+      }
+    }
+  );
+
+  if (affectedRows !== 1) {
+    throw new BadRequestError('Invalid or expired activation token', null, 'INVALID_ACTIVATION_TOKEN');
+  }
+
+  // Link any unlinked Candidate records in organisations for this email
+  try {
+    await Candidate.update(
+      {
+        authUserId: account.id,
+        claimedAt: now
+      },
+      {
+        where: {
+          [Op.or]: [
+            { email: account.email },
+            Sequelize.where(Sequelize.fn('LOWER', Sequelize.col('email')), account.email.toLowerCase())
+          ],
+          authUserId: null
+        }
+      }
+    );
+  } catch (linkErr) {
+    logger.warn({ err: linkErr.message, accountId: account.id }, 'Could not back-fill unlinked candidate records');
+  }
+
+  await writeCandidateAudit({
+    accountId: account.id,
+    action: 'CANDIDATE_ACCOUNT_ACTIVATED',
+    context: { requestId, ipAddress, userAgent },
+    afterState: { emailVerified: true, passwordSetup: true }
+  });
+
+  return {
+    activated: true,
+    email: account.email,
+    fullName: account.fullName,
+    message: 'Candidate account activated successfully. You can now sign in with your email and password.',
+    loginUrl: '/login'
+  };
+}
+
+/**
+ * Resends activation instructions for an inactive candidate account without exposing account existence.
+ */
+async function resendCandidateActivation({ email, requestId = null, ipAddress = null, userAgent = null }) {
+  ensureDatabaseReady();
+  const { CandidateAccount } = getModels();
+  const normalizedEmail = normalizeEmail(email);
+  const now = new Date();
+  const cooldownMs = env.candidateAuth.resendCooldownSeconds * 1000;
+
+  const lastMemResend = resendCooldownByEmail.get(normalizedEmail);
+  if (lastMemResend && now.getTime() - lastMemResend < cooldownMs) {
+    return {
+      accepted: true,
+      message: 'If an unactivated candidate account exists for this email, activation instructions have been sent.'
+    };
+  }
+
+  const account = await findCandidateAccountByEmail(normalizedEmail);
+  if (account && account.isActive && !account.emailVerified) {
+    const rawActivationToken = generateResetToken(32);
+    const tokenHash = hashCandidateToken(rawActivationToken, 'CANDIDATE_ACTIVATION');
+    const expiresInHours = 48;
+    const expiresAt = addMinutes(now, expiresInHours * 60);
+    const activationUrl = `${env.clientAppUrl}/activate-candidate?token=${encodeURIComponent(rawActivationToken)}`;
+    const loginUrl = `${env.clientAppUrl}/login`;
+
+    await CandidateAccount.update(
+      {
+        verificationTokenHash: tokenHash,
+        verificationExpiresAt: expiresAt,
+        verificationAttempts: 0,
+        verificationSentAt: now,
+        lastSecurityEventAt: now
+      },
+      { where: { id: account.id, isActive: true, emailVerified: false } }
+    );
+
+    try {
+      await notificationAdapter.dispatchNotification({
+        eventType: 'CANDIDATE_ACCOUNT_ACTIVATION',
+        organisationId: null,
+        recipientEmail: account.email,
+        recipientName: account.fullName,
+        requestId,
+        payload: {
+          username: account.email,
+          email: account.email,
+          fullName: account.fullName,
+          activationToken: rawActivationToken,
+          activationUrl,
+          loginUrl,
+          expiresInHours
+        }
+      });
+    } catch (notifErr) {
+      logger.warn({ err: notifErr.message, email: account.email }, 'Failed to resend candidate activation email');
+    }
+
+    await writeCandidateAudit({
+      accountId: account.id,
+      action: 'CANDIDATE_ACTIVATION_RESENT',
+      context: { requestId, ipAddress, userAgent },
+      afterState: { verificationExpiresAt: expiresAt.toISOString() }
+    });
+  }
+
+  pruneAndSetCooldown(resendCooldownByEmail, normalizedEmail, now.getTime(), cooldownMs);
+
+  return {
+    accepted: true,
+    message: 'If an unactivated candidate account exists for this email, activation instructions have been sent.'
+  };
+}
+
 function clearCandidateCooldownsForTest() {
   if (process.env.NODE_ENV !== 'test') {
     throw new Error('clearCandidateCooldownsForTest is restricted to NODE_ENV=test');
@@ -806,6 +1209,10 @@ module.exports = {
   resetCandidatePassword,
   changeCandidatePassword,
   deactivateCandidateAccount,
+  provisionCandidateAccountForApplication,
+  inspectCandidateActivationToken,
+  activateCandidateAccount,
+  resendCandidateActivation,
   clearCandidateCooldownsForTest
 };
 

@@ -1,11 +1,59 @@
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const env = require('../../config/env');
+const logger = require('../../config/logger');
 const { requestJson } = require('../common/httpClient');
 const organisationAdapter = require('../organisation/organisation.adapter');
 const { ForbiddenError, NotFoundError } = require('../../utils/AppError');
 
 // Standalone dev/test fixture store (never used when INTEGRATION_MODE=live)
 const standaloneEmployeesByOrg = new Map();
+const STANDALONE_EMPLOYEE_STORE_PATH = path.resolve(__dirname, '../../../storage/.standalone-employees.json');
+
+function shouldPersistStandaloneStore() {
+  return env.integrationMode === 'standalone' && process.env.NODE_ENV !== 'test';
+}
+
+function saveStandaloneEmployeesToDisk() {
+  if (!shouldPersistStandaloneStore()) return;
+  try {
+    const dir = path.dirname(STANDALONE_EMPLOYEE_STORE_PATH);
+    fs.mkdirSync(dir, { recursive: true });
+    const serialized = [];
+    for (const [orgId, empMap] of standaloneEmployeesByOrg.entries()) {
+      for (const emp of empMap.values()) {
+        serialized.push({ ...emp, organisationId: orgId });
+      }
+    }
+    fs.writeFileSync(STANDALONE_EMPLOYEE_STORE_PATH, JSON.stringify(serialized, null, 2), 'utf8');
+  } catch (err) {
+    logger.warn({ err: err.message }, '[Standalone Employee Adapter] Failed to persist standalone employees store');
+  }
+}
+
+function loadStandaloneEmployeesFromDisk() {
+  if (!shouldPersistStandaloneStore()) return;
+  try {
+    if (!fs.existsSync(STANDALONE_EMPLOYEE_STORE_PATH)) return;
+    const raw = fs.readFileSync(STANDALONE_EMPLOYEE_STORE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (const emp of parsed) {
+        if (emp && (emp.employeeId || emp.id) && emp.organisationId) {
+          const empId = emp.employeeId || emp.id;
+          const normalized = { ...emp, employeeId: empId, id: empId };
+          ensureOrgStore(emp.organisationId).set(empId, normalized);
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, '[Standalone Employee Adapter] Failed to load standalone employees store');
+  }
+}
+
+// Initial load for standalone mode
+loadStandaloneEmployeesFromDisk();
 
 function ensureOrgStore(organisationId) {
   if (!standaloneEmployeesByOrg.has(organisationId)) {
@@ -104,7 +152,48 @@ async function listEmployees(organisationId, { search = '', status = '', limit =
     return rows.map((emp) => normalizeEmployeeDto(emp, organisationId));
   }
 
-  const orgEmployees = Array.from(ensureOrgStore(organisationId).values());
+  loadStandaloneEmployeesFromDisk();
+  const store = ensureOrgStore(organisationId);
+
+  // If in-memory store is still empty for this organisation, reconcile from DB assignments
+  if (store.size === 0) {
+    try {
+      const { isDatabaseInitialized, getModels } = require('../../config/database');
+      if (isDatabaseInitialized()) {
+        const { EmployeeRoleAssignment } = getModels();
+        const assignments = await EmployeeRoleAssignment.findAll({
+          where: { organisationId }
+        });
+        const authAdapter = require('../auth/auth.adapter');
+        for (const assign of assignments) {
+          const authUser = assign.authUserId ? authAdapter.findStandaloneUserById(assign.authUserId) : null;
+          const name = authUser?.name || 'Team Member';
+          const { firstName, lastName } = splitFullName(name);
+          const emp = {
+            employeeId: assign.employeeId,
+            id: assign.employeeId,
+            authUserId: assign.authUserId || null,
+            organisationId,
+            employeeCode: `EMP-${assign.employeeId.slice(0, 6).toUpperCase()}`,
+            fullName: name,
+            firstName,
+            lastName,
+            email: (authUser?.email || '').toLowerCase(),
+            department: 'People & Talent',
+            designation: 'Recruiter',
+            phone: null,
+            status: assign.invitationStatus === 'ACCOUNT_ACTIVATED' ? 'ACTIVE' : 'INVITED',
+            isActive: assign.isActive !== false,
+            createdAt: assign.createdAt || new Date().toISOString()
+          };
+          store.set(assign.employeeId, emp);
+        }
+        if (store.size > 0) saveStandaloneEmployeesToDisk();
+      }
+    } catch (_dbErr) {}
+  }
+
+  const orgEmployees = Array.from(store.values());
   if (!search) return orgEmployees;
   const q = search.toLowerCase();
   return orgEmployees.filter(
@@ -147,7 +236,52 @@ async function getEmployeeById(organisationId, employeeId, context = {}) {
     }
   }
 
-  return ensureOrgStore(organisationId).get(employeeId) || null;
+  let emp = ensureOrgStore(organisationId).get(employeeId);
+  if (emp) return emp;
+
+  // Standalone fallback: reload disk in case another process or restart happened
+  loadStandaloneEmployeesFromDisk();
+  emp = ensureOrgStore(organisationId).get(employeeId);
+  if (emp) return emp;
+
+  // Standalone database fallback: Check if EmployeeRoleAssignment exists in database
+  try {
+    const { isDatabaseInitialized, getModels } = require('../../config/database');
+    if (isDatabaseInitialized()) {
+      const { EmployeeRoleAssignment } = getModels();
+      const assignment = await EmployeeRoleAssignment.findOne({
+        where: { organisationId, employeeId }
+      });
+      if (assignment) {
+        const authAdapter = require('../auth/auth.adapter');
+        const authUser = assignment.authUserId ? authAdapter.findStandaloneUserById(assignment.authUserId) : null;
+        const name = authUser?.name || 'Team Member';
+        const { firstName, lastName } = splitFullName(name);
+        const reconstructed = {
+          employeeId,
+          id: employeeId,
+          authUserId: assignment.authUserId || null,
+          organisationId,
+          employeeCode: `EMP-${employeeId.slice(0, 6).toUpperCase()}`,
+          fullName: name,
+          firstName,
+          lastName,
+          email: (authUser?.email || '').toLowerCase(),
+          department: 'People & Talent',
+          designation: 'Recruiter',
+          phone: null,
+          status: assignment.invitationStatus === 'ACCOUNT_ACTIVATED' ? 'ACTIVE' : 'INVITED',
+          isActive: assignment.isActive !== false,
+          createdAt: assignment.createdAt || new Date().toISOString()
+        };
+        ensureOrgStore(organisationId).set(employeeId, reconstructed);
+        saveStandaloneEmployeesToDisk();
+        return reconstructed;
+      }
+    }
+  } catch (_dbErr) {}
+
+  return null;
 }
 
 async function validateActiveEmployeeInOrg(organisationId, employeeId, context = {}) {
@@ -259,10 +393,11 @@ async function createEmployee(organisationId, payload, context = {}) {
     return existing;
   }
 
+  const employeeId = payload.employeeId || payload.id || uuidv4();
   const { firstName, lastName } = splitFullName(payload.fullName);
   const employee = {
-    employeeId: payload.employeeId || uuidv4(),
-    id: payload.employeeId || uuidv4(),
+    employeeId,
+    id: employeeId,
     authUserId: payload.authUserId || null,
     organisationId,
     employeeCode: payload.employeeCode || `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -279,6 +414,7 @@ async function createEmployee(organisationId, payload, context = {}) {
   };
 
   store.set(employee.employeeId, employee);
+  saveStandaloneEmployeesToDisk();
   return employee;
 }
 
@@ -288,13 +424,38 @@ function updateStandaloneEmployeeAuthId(organisationId, employeeId, authUserId, 
   if (emp) {
     emp.authUserId = authUserId;
     emp.status = status;
+    saveStandaloneEmployeesToDisk();
   }
   return emp;
+}
+
+function updateStandaloneEmployeeStatus(organisationId, employeeId, status) {
+  if (env.integrationMode === 'live') return;
+  const emp = ensureOrgStore(organisationId).get(employeeId);
+  if (emp) {
+    emp.status = status;
+    saveStandaloneEmployeesToDisk();
+  }
+}
+
+function deleteStandaloneEmployee(organisationId, employeeId) {
+  if (env.integrationMode === 'live') return true;
+  const orgStore = standaloneEmployeesByOrg.get(organisationId);
+  if (orgStore) {
+    orgStore.delete(employeeId);
+    saveStandaloneEmployeesToDisk();
+  }
+  return true;
 }
 
 function clearStandaloneEmployeeStore() {
   organisationAdapter.clearStandaloneOrganisations();
   standaloneEmployeesByOrg.clear();
+  if (fs.existsSync(STANDALONE_EMPLOYEE_STORE_PATH)) {
+    try {
+      fs.unlinkSync(STANDALONE_EMPLOYEE_STORE_PATH);
+    } catch (_e) {}
+  }
 }
 
 module.exports = {
@@ -306,5 +467,7 @@ module.exports = {
   validateActiveEmployeeInOrg,
   createEmployee,
   updateStandaloneEmployeeAuthId,
+  updateStandaloneEmployeeStatus,
+  deleteStandaloneEmployee,
   clearStandaloneEmployeeStore
 };

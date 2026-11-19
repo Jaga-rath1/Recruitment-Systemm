@@ -98,6 +98,15 @@ async function updateEmployeeAssignment(organisationId, employeeId, data, transa
   return findEmployeeAssignment(organisationId, employeeId, transaction);
 }
 
+async function deleteEmployeeAssignment(organisationId, employeeId, transaction = null) {
+  const { EmployeeRoleAssignment } = getModels();
+  const count = await EmployeeRoleAssignment.destroy({
+    where: { organisationId, employeeId },
+    transaction
+  });
+  return count > 0;
+}
+
 async function getEmployeeActivityStats(organisationId, employeeId, authUserId = null) {
   const { RecruitmentAuditLog, InterviewAssignment, Application, Job } = getModels();
   const actorIds = [employeeId, authUserId].filter(Boolean);
@@ -186,6 +195,7 @@ module.exports = {
   findEmployeeAssignment,
   upsertEmployeeAssignment,
   updateEmployeeAssignment,
+  deleteEmployeeAssignment,
   getEmployeeActivityStats,
   getDashboardMetrics
 };

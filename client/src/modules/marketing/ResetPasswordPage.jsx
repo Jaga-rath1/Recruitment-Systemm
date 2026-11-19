@@ -33,13 +33,17 @@ export default function ResetPasswordPage() {
     ? 'Set New Organisation Admin Password'
     : loginPath === '/recruiter-login'
       ? 'Set New Recruiter Password'
-      : 'Choose New Account Password';
+      : portal === 'candidate'
+        ? 'Set Your Candidate Account Password'
+        : 'Choose New Account Password';
 
   const signInCtaLabel = loginPath === '/org-login'
     ? 'Sign In to Organisation Admin Portal'
     : loginPath === '/recruiter-login'
       ? 'Sign In to Recruiter Portal'
-      : 'Sign In With New Password';
+      : portal === 'candidate'
+        ? 'Sign In to Candidate Portal'
+        : 'Sign In With New Password';
 
   const handleSubmit = async (e) => {
     e.preventDefault();

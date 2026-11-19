@@ -68,6 +68,25 @@ const changePasswordSchema = {
     })
 };
 
+const candidateActivateSchema = {
+  body: z
+    .object({
+      token: z.string().trim().min(16).max(512),
+      password: strongPasswordSchema('Password'),
+      confirmPassword: z.string().min(8).max(128).optional()
+    })
+    .refine((data) => data.confirmPassword === undefined || data.confirmPassword === data.password, {
+      message: 'Password confirmation does not match password',
+      path: ['confirmPassword']
+    })
+};
+
+const tokenQuerySchema = {
+  query: z.object({
+    token: z.string().trim().min(16).max(512)
+  })
+};
+
 // --- Four Dedicated Login Portals ---
 // 1. Candidate Login
 router.post('/candidate/login', authRateLimiter, validate(loginSchema), controller.candidateLogin);
@@ -91,6 +110,9 @@ router.post('/candidate/resend-verification', candidateVerificationLimiter, vali
 router.post('/candidate/forgot-password', candidateRecoveryLimiter, validate(emailOnlySchema), controller.forgotCandidatePassword);
 router.post('/candidate/reset-password', candidateRecoveryLimiter, validate(resetPasswordSchema), controller.resetCandidatePassword);
 router.post('/candidate/change-password', authenticate, candidateRecoveryLimiter, validate(changePasswordSchema), controller.changeCandidatePassword);
+router.post('/candidate/activate', candidateVerificationLimiter, validate(candidateActivateSchema), controller.activateCandidate);
+router.get('/candidate/activate/inspect', candidateVerificationLimiter, validate(tokenQuerySchema), controller.inspectCandidateActivation);
+router.post('/candidate/resend-activation', candidateRecoveryLimiter, validate(emailOnlySchema), controller.resendCandidateActivation);
 
 // Profile
 router.get('/me', authenticate, controller.getMe);
